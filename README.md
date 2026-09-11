@@ -1,50 +1,42 @@
-# 锤柄
+# Chuibing
 
-锤子的手柄。坚果 OS / Smartisan OS 补丁工具（锤子补丁）。需要 Root。当前主要覆盖 TNT 窗口配置、语音指令、系统 WebView。
+The handle that makes the hammer comfortable.
 
-安装包不进 Git，放在仓库旁的 `BYFBBB`。
+A Smartisan OS patch tool. Root required.
 
-## 环境
+## What it does
 
-- 坚果 Pro 2s，Smartisan OS 7.2（Android 8.1）
-- Root（APatch / Magisk 等）
-- 语音、WebView 相关能力需要 LSPosed 模块注入
+- Edit `/data/system/revone_window_config.xml`
+- Group apps by window size and display mode
+- Switch TNT mirror / desktop / share, plus hot switch
+- Voice commands and aliases
+- System WebView provider switch
 
-## 功能
+Saves a backup on first launch. Writes the system XML only when you tap save.
 
-- 编辑 `/data/system/revone_window_config.xml`
-- 按合集管理应用窗口大小、显示状态、拉伸
-- TNT 镜像 / 桌面 / 分享切换，以及热切换
-- 语音指令与别名
-- 系统 WebView 实现切换
+## Build
 
-首次启动会备份原件。点保存才会写系统 XML。
+JDK 17, Android SDK.
 
-## 构建
-
-JDK 17，Android SDK。
-
-Linux / macOS：
+Linux / macOS:
 
 ```sh
 ./gradlew assembleDebug
 ```
 
-Windows：
+Windows:
 
 ```bat
 gradlew.bat assembleDebug
 ```
 
-产物在 `app/build/outputs/apk/debug/`。对外安装包复制到仓库旁的 `BYFBBB/锤子补丁-<version>-debug.apk`。
+APKs stay next to the repo in `BYFBBB`. Do not commit `local.properties`.
 
-不要提交 `local.properties`。本机 SDK 路径由 Android Studio 或本地文件生成。
+## Notes
 
-## 注意
-
-- 会改系统文件。卸载应用不会自动还原 XML。
-- 原件备份在应用私有目录，卸载会一起消失。请先在设置里做完整备份或导出。
-- 仅在已 Root 的自己的设备上使用。
+- It edits system files. Uninstalling the app does not restore the XML.
+- Backups live in app-private storage and vanish on uninstall. Export them first.
+- Use only on your own rooted device.
 
 ## License
 
