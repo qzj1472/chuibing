@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_scope">
+        <item>com.smartisanos.virtualremoter</item>
+        <item>com.smartisanos.voice</item>
+        <item>com.smartisanos.sara</item>
+        <item>android</item>
+        <item>system</item>
+        <item>com.smartisanos.home</item>
+        <item>com.smartisanos.desktop</item>
+        <item>com.android.settings</item>
+        <item>com.android.desktop.systemui</item>
+        <item>id.tntwindow.editor</item>
+    </string-array>
+</resources>
