@@ -1,6 +1,6 @@
-# 锤子补丁
+# 锤柄
 
-坚果 OS / Smartisan OS 补丁工具。需要 Root。当前主要覆盖 TNT 窗口配置、语音指令、系统 WebView。
+锤子的手柄。坚果 OS / Smartisan OS 补丁工具（锤子补丁）。需要 Root。当前主要覆盖 TNT 窗口配置、语音指令、系统 WebView。
 
 安装包不进 Git，放在仓库旁的 `BYFBBB`。
 
