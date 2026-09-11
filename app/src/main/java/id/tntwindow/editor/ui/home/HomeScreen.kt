@@ -66,7 +66,7 @@ fun HomeScreen(
         containerColor = scheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("锤子补丁  " + BuildConfig.VERSION_NAME) },
+                title = { Text("锤柄  " + BuildConfig.VERSION_NAME) },
                 actions = {
                     IconButton(onClick = onSave, enabled = st.editingAllowed) {
                         Icon(Icons.Outlined.Save, contentDescription = "保存")

@@ -41,7 +41,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="锤子系统补丁：窗口配置、语音指令、WebView、APatch 保护" />
+            android:value="锤柄：TNT 窗口、语音指令、WebView" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />

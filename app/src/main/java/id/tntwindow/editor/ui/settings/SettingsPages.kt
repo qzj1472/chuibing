@@ -298,11 +298,11 @@ fun AboutSettingsScreen(state: EditorState, onBack: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     SettingsPage("关于", onBack) {
         Panel(accent = true) {
-            Text("锤子补丁  " + BuildConfig.VERSION_NAME, style = MaterialTheme.typography.titleMedium)
+            Text("锤柄  " + BuildConfig.VERSION_NAME, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             PathText(Paths.SYSTEM)
             Spacer(Modifier.height(8.dp))
-            Text("锤子系统补丁工具。改窗口 XML、语音、WebView。原件备份在本应用私有目录，卸载即消失。", color = scheme.onSurfaceVariant)
+            Text("锤柄是给坚果 OS 用的补丁工具。改窗口 XML、语音、WebView。原件备份在本应用私有目录，卸载即消失。", color = scheme.onSurfaceVariant)
         }
         if (state.moduleActive) {
             Panel {

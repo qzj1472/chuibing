@@ -89,7 +89,7 @@ fun SettingsScreen(
             }
             SmallTitle("关于")
             SettingsGroup {
-                SettingsNavRow("关于锤子补丁", BuildConfig.VERSION_NAME, { onOpen("settings/about") }, divider = false)
+                SettingsNavRow("关于锤柄", BuildConfig.VERSION_NAME, { onOpen("settings/about") }, divider = false)
             }
         }
     }
