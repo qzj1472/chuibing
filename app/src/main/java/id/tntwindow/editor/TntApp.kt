@@ -1,5 +1,17 @@
 package id.tntwindow.editor
 
 import android.app.Application
+import id.tntwindow.editor.data.HomeLock
+import id.tntwindow.editor.data.RootAccess
 
-class TntApp : Application()
+class TntApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Thread {
+            try {
+                if (RootAccess.available()) HomeLock.ensureWatch()
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+}
