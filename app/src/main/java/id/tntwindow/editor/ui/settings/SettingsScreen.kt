@@ -21,8 +21,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import id.tntwindow.editor.BuildConfig
 import id.tntwindow.editor.EditorState
 import id.tntwindow.editor.TntViewModel
 import id.tntwindow.editor.ui.components.SettingsGroup
@@ -89,7 +89,7 @@ fun SettingsScreen(
             }
             SmallTitle("关于")
             SettingsGroup {
-                SettingsNavRow("关于锤柄", BuildConfig.VERSION_NAME, { onOpen("settings/about") }, divider = false)
+                SettingsNavRow("关于锤柄", installedVersionName(LocalContext.current), { onOpen("settings/about") }, divider = false)
             }
         }
     }

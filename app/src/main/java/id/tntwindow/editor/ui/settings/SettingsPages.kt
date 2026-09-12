@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import id.tntwindow.editor.BuildConfig
 import id.tntwindow.editor.EditorState
@@ -296,9 +297,10 @@ fun EditSettingsScreen(state: EditorState, vm: TntViewModel, onBack: () -> Unit)
 @Composable
 fun AboutSettingsScreen(state: EditorState, onBack: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val version = installedVersionName(LocalContext.current)
     SettingsPage("关于", onBack) {
         Panel(accent = true) {
-            Text("锤柄  " + BuildConfig.VERSION_NAME, style = MaterialTheme.typography.titleMedium)
+            Text("锤柄  " + version, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             PathText(Paths.SYSTEM)
             Spacer(Modifier.height(8.dp))
@@ -313,3 +315,12 @@ fun AboutSettingsScreen(state: EditorState, onBack: () -> Unit) {
 }
 
 
+
+fun installedVersionName(context: android.content.Context): String {
+    val fromPkg = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    } catch (_: Throwable) {
+        null
+    }
+    return fromPkg?.takeIf { it.isNotBlank() } ?: BuildConfig.VERSION_NAME
+}

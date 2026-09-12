@@ -20,6 +20,7 @@ import id.tntwindow.editor.TntViewModel
 import id.tntwindow.editor.ui.components.SettingsGroup
 import id.tntwindow.editor.ui.components.SmallTitle
 import id.tntwindow.editor.ui.components.SettingsNavRow
+import id.tntwindow.editor.ui.components.SettingsSwitchRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +52,10 @@ fun PatchScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            SmallTitle("超级用户")
+            SettingsGroup {
+                SettingsSwitchRow("APatch 守护", state.apatchProtect, { vm.setApatchProtect(it) }, divider = false)
+            }
             SmallTitle("系统能力")
             SettingsGroup {
                 SettingsNavRow("语音模块", voiceSub, { onOpen("voice") })

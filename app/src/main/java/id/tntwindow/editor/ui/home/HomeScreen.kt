@@ -52,10 +52,10 @@ fun HomeScreen(
     val scheme = MaterialTheme.colorScheme
     var issuesOpen by remember { mutableStateOf(false) }
     val env = when {
-        st.rootOk && state.lsposed && state.moduleActive -> "已就绪"
         !st.rootOk -> "Root 未开启"
-        !state.lsposed -> "LSPosed 未开启"
-        else -> "模块未注入"
+        state.moduleActive -> "已就绪"
+        state.lsposed -> "模块未注入"
+        else -> "LSPosed 未开启"
     }
     val webVer = state.webView.currentVersion.ifBlank {
         state.webView.providers.firstOrNull { it.current }?.versionName
@@ -104,6 +104,7 @@ fun HomeScreen(
             }
             SmallTitle("补丁")
             SettingsGroup {
+                SettingsInfoRow("APatch 守护", if (state.apatchProtect) "开" else "关", divider = true)
                 SettingsInfoRow("语音", if (state.moduleActive) "已启用" else "未启用", divider = true)
                 SettingsInfoRow("WebView", webVer, divider = true, subtitleMaxLines = 1)
                 SettingsInfoRow("锁桌面", if (state.homeLockEnabled) "开" else "关", divider = false)

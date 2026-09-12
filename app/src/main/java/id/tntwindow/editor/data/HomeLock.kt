@@ -12,10 +12,6 @@ import java.nio.charset.StandardCharsets
 
 object HomeLock {
     private const val STAGED = "/data/local/tmp/tnt_home_lock.json"
-    private const val WATCH = "/data/local/tmp/tnt_home_watch.sh"
-    private const val PID = "/data/local/tmp/tnt_home_watch.pid"
-    private const val KICK = "/data/local/tmp/tnt_home_kick"
-    private const val BOOT = "/data/adb/service.d/99tnt_home_watch.sh"
 
     fun officialComponent(): String = TntLaunch.HOME_PKG + "/" + TntLaunch.HOME_CLS
 
@@ -117,170 +113,20 @@ object HomeLock {
     fun ensureOfficialPreferred(): ShellResult = setHome(officialComponent())
 
     fun push(lock: Boolean, component: String): ShellResult {
+        cleanupWatch()
         val o = JSONObject()
         o.put("lock", lock)
         o.put("component", component.trim())
         val b64 = Base64.encodeToString(o.toString().toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
         val write = RootAccess.su("echo " + b64 + " | base64 -d > '" + STAGED + "' && chmod 644 '" + STAGED + "'")
         if (!write.ok) return write
-        val copy = RootAccess.su(
+        return RootAccess.su(
             "cp '" + STAGED + "' '" + Paths.HOME_LOCK + "' && chown system:system '" + Paths.HOME_LOCK + "' && chmod 644 '" + Paths.HOME_LOCK + "'"
         )
-        if (!copy.ok) return copy
-        return if (lock) startWatch() else stopWatch()
     }
 
-    fun ensureWatch() {
-        if (!lockedOn()) return
-        startWatch()
-    }
-
-    private fun lockedOn(): Boolean {
-        val files = listOf(STAGED, Paths.HOME_LOCK)
-        for (path in files) {
-            val f = File(path)
-            if (!f.exists() || !f.canRead()) continue
-            try {
-                if (JSONObject(f.readText(Charsets.UTF_8)).optBoolean("lock", false)) return true
-            } catch (_: Exception) {
-            }
-        }
-        val r = RootAccess.su("cat '" + STAGED + "' 2>/dev/null")
-        if (!r.ok || r.out.isBlank()) return false
-        return try {
-            JSONObject(r.out).optBoolean("lock", false)
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun startWatch(): ShellResult {
-        val w = writeFile(WATCH, watchScript(), "755")
-        if (!w.ok) return w
-        RootAccess.su("mkdir -p /data/adb/service.d")
-        val b = writeFile(BOOT, bootScript(), "755")
-        if (!b.ok) return b
-        val fire = "old=@D@(cat " + PID + " 2>/dev/null); if [ -n \"@D@old\" ]; then kill @D@old 2>/dev/null; fi; sleep 0.2; nohup setsid sh " + WATCH + " </dev/null >/data/local/tmp/tnt_home_watch.log 2>&1 & echo started"
-        val r = RootAccess.su(fire.replace("@D@", "\u0024"))
-        return if (r.ok || r.out.contains("started")) ShellResult(0, r.out.ifBlank { "ok" }, "") else r
-    }
-
-    private fun stopWatch(): ShellResult {
-        val cmd = "old=@D@(cat " + PID + " 2>/dev/null); if [ -n \"@D@old\" ]; then kill @D@old 2>/dev/null; fi; rm -f " + PID + " " + WATCH + " " + KICK + " " + BOOT
-        return RootAccess.su(cmd.replace("@D@", "\u0024"))
-    }
-
-    private fun writeFile(path: String, body: String, mode: String): ShellResult {
-        val b64 = Base64.encodeToString(body.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
-        return RootAccess.su("echo " + b64 + " | base64 -d > '" + path + "' && chmod " + mode + " '" + path + "'")
-    }
-
-    private fun bootScript(): String {
-        return """
-#!/system/bin/sh
-sleep 25
-[ -f /data/local/tmp/tnt_home_lock.json ] || exit 0
-grep -q '"lock":true' /data/local/tmp/tnt_home_lock.json || exit 0
-sh /data/local/tmp/tnt_home_watch.sh >/data/local/tmp/tnt_home_watch.log 2>&1 &
-""".trimIndent()
-    }
-
-    private fun watchScript(): String {
-        val raw = """
-#!/system/bin/sh
-PIDF=/data/local/tmp/tnt_home_watch.pid
-LOCKF=/data/local/tmp/tnt_home_lock.json
-KICK=/data/local/tmp/tnt_home_kick
-HOT=/data/local/tmp/tnt_hotswap.lck
-echo @D@@ > "@D@PIDF"
-last=
-pending=0
-lock_on() {
-  [ -f "@D@LOCKF" ] || return 1
-  grep -q '"lock":true' "@D@LOCKF"
-}
-comp() {
-  grep -o '"component":"[^"]*"' "@D@LOCKF" 2>/dev/null | head -n 1 | cut -d '"' -f 4
-}
-busy() {
-  [ -d "@D@HOT" ]
-}
-pc() {
-  settings get secure pc_mode_enable 2>/dev/null
-}
-recover() {
-  lock_on || return 0
-  busy && return 0
-  v=@D@(pc)
-  [ "@D@v" = 1 ] && return 0
-  [ "@D@v" = 2 ] && return 0
-  c=@D@(comp)
-  [ -n "@D@c" ] || return 0
-  pkg=@D@{c%/*}
-  case "@D@pkg" in
-    com.smartisanos.home|com.smartisanos.desktop) return 0 ;;
-  esac
-  am force-stop com.smartisanos.home >/dev/null 2>&1
-  i=0
-  while [ "@D@i" -lt 3 ]; do
-    am force-stop "@D@pkg" >/dev/null 2>&1
-    sleep 0.7
-    am start --user 0 -n "@D@c" >/dev/null 2>&1
-    sleep 0.8
-    i=@D@((i+1))
-  done
-}
-if [ "@D@1" = recover ]; then
-  recover
-  exit 0
-fi
-while true; do
-  lock_on || exit 0
-  v=@D@(pc)
-  kick=
-  if [ -f "@D@KICK" ]; then
-    kick=@D@(cat "@D@KICK" 2>/dev/null)
-    rm -f "@D@KICK"
-  fi
-  if [ "@D@kick" = enter ]; then
-    last=@D@v
-    pending=0
-  fi
-  if [ "@D@kick" = exit ]; then
-    pending=1
-  fi
-  case "@D@v" in
-    1|2)
-      last=@D@v
-      pending=0
-      ;;
-    0)
-      if [ "@D@last" = 1 ] || [ "@D@last" = 2 ]; then
-        pending=1
-      fi
-      ;;
-  esac
-  if [ "@D@pending" = 1 ]; then
-    if busy; then
-      pending=0
-    else
-      sleep 5
-      v2=@D@(pc)
-      if busy; then
-        pending=0
-      elif [ "@D@v2" = 1 ] || [ "@D@v2" = 2 ]; then
-        pending=0
-        last=@D@v2
-      elif [ "@D@v2" = 0 ]; then
-        recover
-        pending=0
-        last=0
-      fi
-    fi
-  fi
-  sleep 2
-done
-""".trimIndent()
-        return raw.replace("@D@", "\u0024")
+    fun cleanupWatch() {
+        val cmd = "old=@D@(cat /data/local/tmp/tnt_home_watch.pid 2>/dev/null); if [ -n \"@D@old\" ]; then kill @D@old 2>/dev/null; fi; rm -f /data/local/tmp/tnt_home_watch.pid /data/local/tmp/tnt_home_watch.sh /data/local/tmp/tnt_home_kick /data/adb/service.d/99tnt_home_watch.sh"
+        RootAccess.su(cmd.replace("@D@", "\u0024"))
     }
 }

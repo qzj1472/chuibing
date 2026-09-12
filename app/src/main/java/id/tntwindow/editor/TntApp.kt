@@ -9,7 +9,7 @@ class TntApp : Application() {
         super.onCreate()
         Thread {
             try {
-                if (RootAccess.available()) HomeLock.ensureWatch()
+                if (RootAccess.available()) HomeLock.cleanupWatch()
             } catch (_: Exception) {
             }
         }.start()

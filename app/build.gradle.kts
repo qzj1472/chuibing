@@ -11,8 +11,8 @@ android {
         applicationId = "id.tntwindow.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "1.7.18"
+        versionCode = 38
+        versionName = "1.7.25"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -61,4 +61,5 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     compileOnly(files("libs/xposed-api-stub.jar"))
 }
+
 

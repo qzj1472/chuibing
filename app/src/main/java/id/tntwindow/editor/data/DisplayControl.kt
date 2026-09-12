@@ -61,7 +61,7 @@ object DisplayControl {
         val b64 = Base64.encodeToString(script.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
         val write = RootAccess.su("echo " + b64 + " | base64 -d > /data/local/tmp/tnt_hotswap.sh && chmod 755 /data/local/tmp/tnt_hotswap.sh")
         if (!write.ok) return ShellResult(write.code, write.out, write.err.ifBlank { "写热切换脚本失败" })
-        val fire = RootAccess.su("nohup setsid sh /data/local/tmp/tnt_hotswap.sh </dev/null >/data/local/tmp/tnt_hotswap.log 2>&1 & echo started")
+        val fire = RootAccess.su("nohup setsid sh /data/local/tmp/tnt_hotswap.sh </dev/null >>/data/local/tmp/tnt_hotswap.log 2>&1 & echo started")
         return if (fire.ok || fire.out.contains("started")) ShellResult(0, fire.out, "")
         else ShellResult(fire.code, fire.out, fire.err.ifBlank { "热切换脚本没有启动" })
     }
@@ -69,49 +69,61 @@ object DisplayControl {
     private fun buildHotswapScript(extra: String, restoreHome: String): String {
         val extraLines = extra.split('\n', ';').map { it.trim() }.filter { it.isNotEmpty() }
         val extraBlock = extraLines.joinToString("\n")
-        val restore = restoreHome.trim().filter { ch -> ch.isLetterOrDigit() || ch == '.' || ch == '/' || ch == '_' || ch.code == 36 }
         val raw = """
 #!/system/bin/sh
-LOG=/data/local/tmp/tnt_hotswap.log
 LOCK=/data/local/tmp/tnt_hotswap.lck
-RESTORE='#RESTORE#'
-echo start %(date) > "%LOG"
-if ! mkdir "%LOCK" 2>/dev/null; then
-  echo busy >> "%LOG"
-  exit 0
+PIDF=/data/local/tmp/tnt_hotswap.lck/pid
+echo ==== @D@(date) pid=@D@@D@ ====
+if ! mkdir "@D@LOCK" 2>/dev/null; then
+  old=
+  if [ -f "@D@PIDF" ]; then
+    old=@D@(cat "@D@PIDF" 2>/dev/null)
+  fi
+  if [ -n "@D@old" ] && kill -0 "@D@old" 2>/dev/null; then
+    echo busy pid=@D@old
+    exit 0
+  fi
+  echo steal lock old=@D@old
+  rm -rf "@D@LOCK"
+  if ! mkdir "@D@LOCK" 2>/dev/null; then
+    echo busy
+    exit 0
+  fi
 fi
+echo @D@@D@ > "@D@PIDF"
+trap 'rm -rf /data/local/tmp/tnt_hotswap.lck' EXIT INT TERM HUP
 set_mode() {
-  m="%1"
-  cmd smt_pcm smtSetDesktopMode "%m" >>"%LOG" 2>&1
-  cmd smtpc smtSetDesktopMode "%m" >>"%LOG" 2>&1
-  settings put secure pc_mode_enable "%m"
-  settings put global global_pc_mode_settings "%m"
+  m="@D@1"
+  cmd smt_pcm smtSetDesktopMode "@D@m" 2>&1
+  cmd smtpc smtSetDesktopMode "@D@m" 2>&1
+  settings put secure pc_mode_enable "@D@m"
+  settings put global global_pc_mode_settings "@D@m"
 }
 wait_mode() {
-  want="%1"
+  want="@D@1"
   i=0
-  while [ "%i" -lt 25 ]; do
-    v=%(settings get secure pc_mode_enable)
-    if [ "%v" = "%want" ]; then
-      echo wait %want ok >>"%LOG"
+  while [ "@D@i" -lt 25 ]; do
+    v=@D@(settings get secure pc_mode_enable)
+    if [ "@D@v" = "@D@want" ]; then
+      echo wait @D@want ok
       return 0
     fi
-    i=%((i+1))
+    i=@D@((i+1))
     sleep 0.4
   done
-  echo wait %want fail v=%v >>"%LOG"
+  echo wait @D@want fail v=@D@v
   return 1
 }
 find_disp() {
-  dumpsys display 2>/dev/null | tr '\r' '\n' | awk '
+  dumpsys display 2>/dev/null | tr '\r' '\n' | /sbin/busybox awk '
     BEGIN { id=0 }
     /DisplayDeviceInfo/ {
-      name=%0
+      name=@D@0
       tnt=0
-      if (tolower(name) ~ /tnt|smt|virtual|pc/) tnt=1
+      if (tolower(name) ~ /tnt|smt|virtual|pc|hdmi|external/) tnt=1
     }
     /mDisplayId=/ {
-      split(%0, a, "mDisplayId=")
+      split(@D@0, a, "mDisplayId=")
       split(a[2], b, /[^0-9]/)
       d=b[1]+0
       if (d>0) {
@@ -120,7 +132,7 @@ find_disp() {
       }
     }
     END { if (id>0) print id }
-  '
+  ' 2>/dev/null
 }
 set_mode 0
 wait_mode 0
@@ -129,27 +141,29 @@ set_mode 1
 wait_mode 1
 sleep 1.2
 #EXTRA#
-d=%(find_disp)
-echo disp=%d >>"%LOG"
-if [ -n "%d" ] && [ "%d" != "0" ]; then
-  am start --display "%d" -n com.smartisanos.desktop/.Desktop >>"%LOG" 2>&1
-  am start --display "%d" -a android.intent.action.MAIN -c android.intent.category.HOME -n com.smartisanos.desktop/.Desktop >>"%LOG" 2>&1
+d=""
+n=0
+while [ "@D@n" -lt 15 ]; do
+  d=@D@(find_disp)
+  if [ -n "@D@d" ] && [ "@D@d" != "0" ]; then
+    break
+  fi
+  n=@D@((n+1))
+  sleep 0.4
+done
+echo disp=@D@d
+if [ -n "@D@d" ] && [ "@D@d" != "0" ]; then
+  am start --display "@D@d" -n com.smartisanos.desktop/.Desktop 2>&1
 else
-  am start -n com.smartisanos.desktop/.Desktop >>"%LOG" 2>&1
+  echo skip phone desktop
 fi
 sleep 0.8
-am force-stop com.smartisanos.virtualremoter >>"%LOG" 2>&1
+am force-stop com.smartisanos.virtualremoter 2>&1
 sleep 0.6
-am start --display 0 -n com.smartisanos.virtualremoter/com.smartisanos.virtualremoter.ui.activities.ControlActivity >>"%LOG" 2>&1
-am start -n com.smartisanos.virtualremoter/com.smartisanos.virtualremoter.ui.activities.ControlActivity >>"%LOG" 2>&1
-if [ -n "%RESTORE" ]; then
-  cmd package set-home-activity --user 0 "%RESTORE" >>"%LOG" 2>&1
-  cmd package set-home-activity "%RESTORE" >>"%LOG" 2>&1
-fi
-echo done %(date) >>"%LOG"
-rmdir "%LOCK"
+am start --display 0 -n com.smartisanos.virtualremoter/com.smartisanos.virtualremoter.ui.activities.ControlActivity 2>&1
+echo done @D@(date)
 """.trimIndent()
-        return raw.replace("#EXTRA#", extraBlock).replace("#RESTORE#", restore).replace("%", "\u0024")
+        return raw.replace("#EXTRA#", extraBlock).replace("@D@", "\u0024")
     }
 
     fun reloadDesktop(extra: String): ShellResult {
@@ -252,8 +266,19 @@ rmdir "%LOCK"
     }
 
     fun lsposedPresent(): Boolean {
-        val r = RootAccess.su("sh -c 'if [ -d /data/adb/modules/zygisk_lsposed ] || [ -d /data/adb/modules/riru_lsposed ] || [ -d /data/adb/lspd ]; then echo yes; fi'")
-        return r.ok && r.out.contains("yes")
+        val cmds = listOf(
+            "test -d /data/adb/lspd && echo yes",
+            "test -f /data/adb/lspd/config/modules_config.db && echo yes",
+            "test -d /data/adb/modules/zygisk_lsposed && echo yes",
+            "test -d /data/adb/modules/riru_lsposed && echo yes",
+            "ls /data/adb/modules 2>/dev/null",
+        )
+        for (c in cmds) {
+            val r = RootAccess.su(c)
+            val t = r.out.lowercase()
+            if (t.contains("yes") || t.contains("lsposed")) return true
+        }
+        return false
     }
 
     fun applyOverlay(info: DisplayInfo? = null): ShellResult {

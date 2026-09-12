@@ -338,6 +338,36 @@ fun SettingsInfoRow(
 }
 
 @Composable
+fun SettingsSwitchRow(
+    title: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    divider: Boolean = true,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 12.dp))
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
+        if (divider) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .padding(start = 16.dp)
+                    .background(scheme.outline.copy(alpha = 0.35f)),
+            )
+        }
+    }
+}
+
+@Composable
 fun SettingsNavRow(
     title: String,
     subtitle: String,

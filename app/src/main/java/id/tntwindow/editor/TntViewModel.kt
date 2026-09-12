@@ -8,8 +8,8 @@ import id.tntwindow.editor.data.BackupStore
 import id.tntwindow.editor.data.Classifier
 import id.tntwindow.editor.data.CollectionStore
 import id.tntwindow.editor.data.DisplayControl
+import id.tntwindow.editor.data.ApatchProtect
 import id.tntwindow.editor.data.HomeLock
-import id.tntwindow.editor.data.TntHotswapService
 import id.tntwindow.editor.data.TntLaunch
 import id.tntwindow.editor.data.InstalledApps
 import id.tntwindow.editor.data.Prefs
@@ -81,6 +81,7 @@ data class EditorState(
     val webViewInject: Boolean = true,
     val overlayEnabled: Boolean = false,
     val homeLockEnabled: Boolean = false,
+    val apatchProtect: Boolean = true,
     val homeLaunchers: List<HomeLauncher> = emptyList(),
     val currentHome: String = "",
     val lockedHome: String = "",
@@ -247,6 +248,7 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             voiceTtsEngines = try { VoiceEngines.tts(pm) } catch (_: Exception) { emptyList() },
             overlayEnabled = prefs.overlayEnabled,
             homeLockEnabled = prefs.homeLockEnabled,
+            apatchProtect = prefs.apatchProtect,
             showUninstalled = prefs.showUninstalled,
             showNoLauncher = prefs.showNoLauncher,
         )
@@ -263,7 +265,9 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             if (!hasVoice.out.contains("ok")) voiceStore.push()
         }
         if (rootOk) {
-            try { RootAccess.su("rm -rf /data/adb/modules/smartisan_patch") } catch (_: Exception) {}
+            try {
+                ApatchProtect.apply(getApplication(), prefs.apatchProtect)
+            } catch (_: Exception) {}
         }
         var webCfg = webViewStore.load()
         if (!webViewStore.exists()) {
@@ -323,6 +327,7 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             lockedHome = prefs.lockedHome,
             overlayEnabled = prefs.overlayEnabled,
             homeLockEnabled = prefs.homeLockEnabled,
+            apatchProtect = prefs.apatchProtect,
             message = bootMsg,
             voiceRecognizers = try { VoiceEngines.recognizers(pm) } catch (_: Exception) { _state.value.voiceRecognizers },
             voiceTtsEngines = try { VoiceEngines.tts(pm) } catch (_: Exception) { _state.value.voiceTtsEngines },
@@ -615,6 +620,29 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    fun setApatchProtect(on: Boolean) {
+        prefs.apatchProtect = on
+        viewModelScope.launch(Dispatchers.IO) {
+            val st = try {
+                ApatchProtect.apply(getApplication(), on)
+            } catch (_: Exception) {
+                null
+            }
+            val msg = if (!on) {
+                "已关闭 APatch 守护"
+            } else if (st == null) {
+                "APatch 守护启动失败"
+            } else if (st.detail == "no apatch") {
+                "没有检测到 APatch"
+            } else if (st.ok) {
+                "已打开 APatch 守护"
+            } else {
+                "APatch 守护写入失败"
+            }
+            _state.value = _state.value.copy(apatchProtect = on, message = msg)
+        }
+    }
+
     fun setHomeLockEnabled(on: Boolean) {
         prefs.homeLockEnabled = on
         viewModelScope.launch(Dispatchers.IO) {
@@ -682,15 +710,8 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restartTnt() {
         viewModelScope.launch(Dispatchers.IO) {
-            val restore = if (prefs.homeLockEnabled) pickThirdParty(_state.value.homeLaunchers, _state.value.currentHome) else ""
-            try {
-                val i = android.content.Intent(getApplication(), TntHotswapService::class.java)
-                i.putExtra("extra", prefs.restartCommand)
-                i.putExtra("restore", restore)
-                getApplication<Application>().startService(i)
-            } catch (_: Throwable) {
-            }
-            val r = DisplayControl.armHotswap(prefs.restartCommand, restore)
+            val phone = if (prefs.homeLockEnabled) prefs.lockedHome else ""
+            val r = DisplayControl.armHotswap(prefs.restartCommand, phone)
             val msg = if (r.ok) {
                 "已开始热切换。切镜像时本应用关掉也没关系，脚本会自己回到 TNT 桌面。"
             } else {
