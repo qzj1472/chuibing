@@ -1,3 +1,11 @@
 id.tntwindow.editor.xposed.VoiceExpandModule
 id.tntwindow.editor.xposed.WebViewProviderModule
 id.tntwindow.editor.xposed.TntDesktopModule
+id.tntwindow.editor.xposed.CorePatchModule
+id.tntwindow.editor.xposed.KeyMapModule
+id.tntwindow.editor.xposed.GestureModule
+id.tntwindow.editor.xposed.FreeformModule
+id.tntwindow.editor.xposed.UninstallTakeoverModule
+id.tntwindow.editor.xposed.InstallTakeoverModule
+id.tntwindow.editor.xposed.BarTintModule
+id.tntwindow.editor.xposed.RotationModule

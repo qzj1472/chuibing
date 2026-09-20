@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
@@ -54,6 +55,7 @@ fun CollectionsScreen(
     onSave: () -> Unit,
     onRestart: () -> Unit,
     onVideos: () -> Unit,
+    onBack: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     var creating by remember { mutableStateOf(false) }
@@ -76,6 +78,13 @@ fun CollectionsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("窗口") },
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = onSave, enabled = editingAllowed) {
                         Icon(Icons.Outlined.Save, contentDescription = "保存")

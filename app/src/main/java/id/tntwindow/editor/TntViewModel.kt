@@ -1,6 +1,8 @@
 package id.tntwindow.editor
 
 import android.app.Application
+import android.content.Context
+import android.view.WindowManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.tntwindow.editor.BuildConfig
@@ -9,6 +11,7 @@ import id.tntwindow.editor.data.Classifier
 import id.tntwindow.editor.data.CollectionStore
 import id.tntwindow.editor.data.DisplayControl
 import id.tntwindow.editor.data.ApatchProtect
+import id.tntwindow.editor.data.SelinuxControl
 import id.tntwindow.editor.data.HomeLock
 import id.tntwindow.editor.data.TntLaunch
 import id.tntwindow.editor.data.InstalledApps
@@ -18,9 +21,22 @@ import id.tntwindow.editor.data.VoiceEngines
 import id.tntwindow.editor.data.VoiceStore
 import id.tntwindow.editor.data.WebViewControl
 import id.tntwindow.editor.data.WebViewStore
+import id.tntwindow.editor.data.CorePatchStore
+import id.tntwindow.editor.data.KeyMapStore
+import id.tntwindow.editor.data.GestureStore
+import id.tntwindow.editor.data.FreeformStore
+import id.tntwindow.editor.data.UninstallStore
+import id.tntwindow.editor.data.UninstallApps
+import id.tntwindow.editor.data.InstallStore
+import id.tntwindow.editor.data.InstallApps
+import id.tntwindow.editor.data.RotationStore
+import id.tntwindow.editor.data.BarTintStore
+import id.tntwindow.editor.data.QuietInstall
 import id.tntwindow.editor.data.RootAccess
 import id.tntwindow.editor.data.ShellResult
 import id.tntwindow.editor.xposed.VoiceRuntime
+import id.tntwindow.editor.voice.VoiceAsrPacks
+import id.tntwindow.editor.voice.VoiceModelDownload
 import id.tntwindow.editor.data.specFromJson
 import id.tntwindow.editor.data.specToJson
 import id.tntwindow.editor.domain.AppCollection
@@ -43,6 +59,21 @@ import id.tntwindow.editor.domain.VoiceConfig
 import id.tntwindow.editor.domain.WebViewConfig
 import id.tntwindow.editor.domain.WebViewSnapshot
 import id.tntwindow.editor.domain.WindowSpec
+import id.tntwindow.editor.domain.CorePatchConfig
+import id.tntwindow.editor.domain.KeyAction
+import id.tntwindow.editor.domain.KeyBinding
+import id.tntwindow.editor.domain.KeyCombo
+import id.tntwindow.editor.domain.KeyMapConfig
+import id.tntwindow.editor.domain.GestureConfig
+import id.tntwindow.editor.domain.GestureEdge
+import id.tntwindow.editor.domain.FreeformConfig
+import id.tntwindow.editor.domain.UninstallConfig
+import id.tntwindow.editor.domain.UninstallHandler
+import id.tntwindow.editor.domain.InstallConfig
+import id.tntwindow.editor.domain.InstallHandler
+import id.tntwindow.editor.domain.RotationConfig
+import id.tntwindow.editor.domain.BarTintConfig
+import id.tntwindow.editor.domain.KeyNames
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,11 +113,23 @@ data class EditorState(
     val overlayEnabled: Boolean = false,
     val homeLockEnabled: Boolean = false,
     val apatchProtect: Boolean = true,
+    val selinuxOff: Boolean = false,
     val homeLaunchers: List<HomeLauncher> = emptyList(),
     val currentHome: String = "",
     val lockedHome: String = "",
     val showUninstalled: Boolean = true,
     val showNoLauncher: Boolean = false,
+    val corePatch: CorePatchConfig = CorePatchConfig.default(),
+    val keyMap: KeyMapConfig = KeyMapConfig.default(),
+    val keyCapturing: Boolean = false,
+    val gesture: GestureConfig = GestureConfig.default(),
+    val freeform: FreeformConfig = FreeformConfig.default(),
+    val uninstall: UninstallConfig = UninstallConfig.default(),
+    val uninstallHandlers: List<UninstallHandler> = emptyList(),
+    val install: InstallConfig = InstallConfig.default(),
+    val installHandlers: List<InstallHandler> = emptyList(),
+    val rotation: RotationConfig = RotationConfig.default(),
+    val barTint: BarTintConfig = BarTintConfig.default(),
 )
 
 class TntViewModel(app: Application) : AndroidViewModel(app) {
@@ -96,6 +139,15 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
     val apps = InstalledApps(app)
     private val voiceStore = VoiceStore(app)
     private val webViewStore = WebViewStore(app)
+    private val corePatchStore = CorePatchStore(app)
+    private val keyMapStore = KeyMapStore(app)
+    private val gestureStore = GestureStore(app)
+    private val freeformStore = FreeformStore(app)
+    private val uninstallStore = UninstallStore(app)
+    private val installStore = InstallStore(app)
+    private val rotationStore = RotationStore(app)
+    private val barTintStore = BarTintStore(app)
+    @Volatile private var lastCapture: Pair<Int, String>? = null
 
     private val _state = MutableStateFlow(
         EditorState(
@@ -129,7 +181,6 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
 
     fun boot() {
         viewModelScope.launch {
-            _state.value = _state.value.copy(busy = true, message = null)
             try {
                 withContext(Dispatchers.IO) { bootFast() }
                 withContext(Dispatchers.IO) { bootSlow() }
@@ -188,10 +239,12 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
         val originalOk = backup.originalExists()
         if (fileOk && !originalOk) issues += Issue("备份", "原件备份失败", "没有原件备份时禁止编辑。")
         val editing = rootOk && fileOk && originalOk && xmlText != null
-        val installed = try { apps.all() } catch (_: Exception) { emptyList() }
-        prefs.addSeen(installed.map { it.packageName })
         var cols = collectionsStore.load()
         val needScan = editing && report != null && (cols == null || collectionsStore.lastSchema < Presets.SCHEMA || Classifier.looksLegacy(cols ?: emptyList()))
+        val installed = if (needScan) {
+            try { apps.all() } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        if (installed.isNotEmpty()) prefs.addSeen(installed.map { it.packageName })
         if (needScan && report != null) {
             cols = Classifier.build(report, installed, cols)
             collectionsStore.save(cols)
@@ -203,19 +256,24 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             cols = Classifier.builtins()
             collectionsStore.save(cols)
         }
-        if (prefs.autoAddEnabled && editing && report != null) {
-            cols = autoAssign(cols, installed, report)
-            collectionsStore.save(cols)
-        }
         var voice = voiceStore.load()
         voice = withoutSampleCommands(withoutRemovedRecognizer(voice)).copy(
             engine = VoiceConfig.ENGINE_REPLACE,
-            recognizer = "",
-            ttsEngine = "",
         )
         voiceStore.save(voice)
-        val pm = getApplication<Application>().packageManager
+        val corePatch = try { corePatchStore.load() } catch (_: Exception) { CorePatchConfig.default() }
+        val keyMap = try { keyMapStore.load() } catch (_: Exception) { KeyMapConfig.default() }
+        val gesture = try { gestureStore.load() } catch (_: Exception) { GestureConfig.default() }
+        val freeform = try { freeformStore.load() } catch (_: Exception) { FreeformConfig.default() }
+        val uninstall = try { uninstallStore.load() } catch (_: Exception) { UninstallConfig.default() }
+        var install = try { installStore.load() } catch (_: Exception) { InstallConfig.default() }
+        if (install.shareUninstall && uninstall.enabled && uninstall.pkg.isNotBlank() && (uninstall.pkg != install.pkg || uninstall.cls != install.cls)) {
+            install = install.copy(shareUninstall = false)
+        }
+        val rotation = try { rotationStore.load() } catch (_: Exception) { RotationConfig.default() }
+        val barTint = try { barTintStore.load() } catch (_: Exception) { BarTintConfig.default() }
         val warnings = issues.map { it.title + "：" + it.detail }
+
         val status = DeviceStatus(
             rootOk = rootOk,
             fileOk = fileOk,
@@ -244,17 +302,29 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             voiceRecognizer = voice.recognizer,
             voiceTts = voice.ttsEngine,
             voiceAliases = voice.aliases,
-            voiceRecognizers = try { VoiceEngines.recognizers(pm) } catch (_: Exception) { emptyList() },
-            voiceTtsEngines = try { VoiceEngines.tts(pm) } catch (_: Exception) { emptyList() },
             overlayEnabled = prefs.overlayEnabled,
             homeLockEnabled = prefs.homeLockEnabled,
             apatchProtect = prefs.apatchProtect,
+            selinuxOff = prefs.selinuxOff,
             showUninstalled = prefs.showUninstalled,
             showNoLauncher = prefs.showNoLauncher,
+            corePatch = corePatch,
+            keyMap = keyMap,
+            gesture = gesture,
+            freeform = freeform,
+            uninstall = uninstall,
+            install = install,
+            rotation = rotation,
+            barTint = barTint,
         )
     }
 
     private fun bootSlow() {
+        val installed = try { apps.all() } catch (_: Exception) { _state.value.installed }
+        if (installed.isNotEmpty()) {
+            prefs.addSeen(installed.map { it.packageName })
+            _state.value = _state.value.copy(installed = installed)
+        }
         val rootOk = _state.value.status.rootOk
         val display = if (rootOk) {
             try { DisplayControl.info() } catch (_: Exception) { DisplayInfo() }
@@ -268,6 +338,9 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 ApatchProtect.apply(getApplication(), prefs.apatchProtect)
             } catch (_: Exception) {}
+            if (prefs.selinuxOff) {
+                try { SelinuxControl.apply(true) } catch (_: Exception) {}
+            }
         }
         var webCfg = webViewStore.load()
         if (!webViewStore.exists()) {
@@ -277,6 +350,75 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             val hasWeb = RootAccess.su("test -s /data/system/tnt_webview_config.json && echo ok")
             if (!hasWeb.out.contains("ok")) webViewStore.push()
         }
+        var coreCfg = corePatchStore.load()
+        if (!corePatchStore.exists()) {
+            corePatchStore.save(coreCfg)
+        }
+        if (rootOk) {
+            val hasCore = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.COREPATCH + "' && echo ok")
+            if (!hasCore.out.contains("ok")) corePatchStore.push()
+            if (coreCfg.verifyAgent) {
+                try { QuietInstall.apply() } catch (_: Exception) {}
+            }
+            try { WebViewControl.ensurePackages(CorePatchStore.SCOPE) } catch (_: Exception) {}
+        }
+        var keyCfg = keyMapStore.load()
+        if (!keyMapStore.exists()) {
+            keyMapStore.save(keyCfg)
+        }
+        if (rootOk) {
+            val hasKey = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.KEYMAP + "' && echo ok")
+            if (!hasKey.out.contains("ok")) keyMapStore.push()
+        }
+        var gestureCfg = gestureStore.load()
+        if (!gestureStore.exists()) {
+            gestureStore.save(gestureCfg)
+        }
+        if (rootOk) {
+            val hasGesture = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.GESTURE + "' && echo ok")
+            if (!hasGesture.out.contains("ok")) gestureStore.push()
+        }
+        var freeformCfg = freeformStore.load()
+        if (!freeformStore.exists()) {
+            freeformStore.save(freeformCfg)
+        }
+        if (rootOk) {
+            val hasFreeform = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.FREEFORM + "' && echo ok")
+            if (!hasFreeform.out.contains("ok")) freeformStore.push()
+        }
+        var uninstallCfg = uninstallStore.load()
+        if (!uninstallStore.exists()) {
+            uninstallStore.save(uninstallCfg)
+        }
+        if (rootOk) {
+            val hasUninstall = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.UNINSTALL + "' && echo ok")
+            if (!hasUninstall.out.contains("ok")) uninstallStore.push()
+        }
+        var installCfg = installStore.load()
+        if (!installStore.exists()) {
+            installStore.save(installCfg)
+        }
+        if (rootOk) {
+            val hasInstall = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.INSTALL + "' && echo ok")
+            if (!hasInstall.out.contains("ok")) installStore.push()
+        }
+        var rotationCfg = rotationStore.load()
+        if (!rotationStore.exists()) {
+            rotationStore.save(rotationCfg)
+        }
+        if (rootOk) {
+            val hasRotation = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.ROTATION + "' && echo ok")
+            if (!hasRotation.out.contains("ok")) rotationStore.push()
+        }
+        var barTintCfg = barTintStore.load()
+        if (!barTintStore.exists()) {
+            barTintStore.save(barTintCfg)
+        }
+        if (rootOk) {
+            val hasBarTint = RootAccess.su("test -s '" + id.tntwindow.editor.domain.Paths.BARTINT + "' && echo ok")
+            if (!hasBarTint.out.contains("ok")) barTintStore.push()
+        }
+
         val pm = getApplication<Application>().packageManager
         var webSnap = try { WebViewControl.snapshot(pm) } catch (_: Exception) { WebViewSnapshot() }
         var bootMsg: String? = _state.value.message
@@ -315,19 +457,39 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             } catch (_: Exception) {}
         }
         val lsposed = if (rootOk) DisplayControl.lsposedPresent() else false
+        var cols = _state.value.collections
+        val report = _state.value.report
+        if (prefs.autoAddEnabled && _state.value.status.editingAllowed && report != null) {
+            cols = autoAssign(cols, installed, report)
+            collectionsStore.save(cols)
+        }
         _state.value = _state.value.copy(
+
             status = _state.value.status.copy(pcMode = pcMode),
             display = display,
             adaptiveFactor = adaptiveFactor(display),
             lsposed = lsposed,
             webView = webSnap,
             webViewInject = webCfg.inject,
+            corePatch = coreCfg,
+            keyMap = keyCfg,
+            gesture = gestureCfg,
+            freeform = freeformCfg,
+            uninstall = uninstallCfg,
+            uninstallHandlers = try { UninstallApps.list(getApplication()) } catch (_: Exception) { emptyList() },
+            install = installCfg,
+            installHandlers = try { InstallApps.list(getApplication()) } catch (_: Exception) { emptyList() },
+            rotation = rotationCfg,
+            barTint = barTintCfg,
             homeLaunchers = launchers,
             currentHome = currentHome,
             lockedHome = prefs.lockedHome,
             overlayEnabled = prefs.overlayEnabled,
             homeLockEnabled = prefs.homeLockEnabled,
             apatchProtect = prefs.apatchProtect,
+            selinuxOff = prefs.selinuxOff,
+            collections = cols,
+            installed = installed,
             message = bootMsg,
             voiceRecognizers = try { VoiceEngines.recognizers(pm) } catch (_: Exception) { _state.value.voiceRecognizers },
             voiceTtsEngines = try { VoiceEngines.tts(pm) } catch (_: Exception) { _state.value.voiceTtsEngines },
@@ -547,6 +709,14 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
         val col = File(dir, "collections.json")
         val voice = File(dir, "voice.json")
         val web = File(dir, "webview.json")
+        val core = File(dir, "corepatch.json")
+        val keymap = File(dir, "keymap.json")
+        val gesture = File(dir, "gesture.json")
+        val freeform = File(dir, "freeform.json")
+        val uninstall = File(dir, "uninstall.json")
+        val install = File(dir, "install.json")
+        val rotation = File(dir, "rotation.json")
+        val bartint = File(dir, "bartint.json")
         val prefsFile = File(dir, "prefs.json")
         val app = getApplication<Application>()
         if (xml.exists()) {
@@ -566,6 +736,39 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             File(app.filesDir, "webview_config.json").writeBytes(web.readBytes())
             if (RootAccess.available()) webViewStore.push()
         }
+        if (core.exists()) {
+            File(app.filesDir, "corepatch_config.json").writeBytes(core.readBytes())
+            if (RootAccess.available()) corePatchStore.push()
+        }
+        if (keymap.exists()) {
+            File(app.filesDir, "keymap_config.json").writeBytes(keymap.readBytes())
+            if (RootAccess.available()) keyMapStore.push()
+        }
+        if (gesture.exists()) {
+            File(app.filesDir, "gesture_config.json").writeBytes(gesture.readBytes())
+            if (RootAccess.available()) gestureStore.push()
+        }
+        if (freeform.exists()) {
+            File(app.filesDir, "freeform_config.json").writeBytes(freeform.readBytes())
+            if (RootAccess.available()) freeformStore.push()
+        }
+        if (uninstall.exists()) {
+            File(app.filesDir, "uninstall_config.json").writeBytes(uninstall.readBytes())
+            if (RootAccess.available()) uninstallStore.push()
+        }
+        if (install.exists()) {
+            File(app.filesDir, "install_config.json").writeBytes(install.readBytes())
+            if (RootAccess.available()) installStore.push()
+        }
+        if (rotation.exists()) {
+            File(app.filesDir, "rotation_config.json").writeBytes(rotation.readBytes())
+            if (RootAccess.available()) rotationStore.push()
+        }
+        if (bartint.exists()) {
+            File(app.filesDir, "bartint_config.json").writeBytes(bartint.readBytes())
+            if (RootAccess.available()) barTintStore.push()
+        }
+
         if (prefsFile.exists()) {
             try {
                 prefs.applyDump(JSONObject(prefsFile.readText(Charsets.UTF_8)))
@@ -611,13 +814,47 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
         if (vf.exists()) files["voice.json"] = vf.readBytes()
         val wf = File(app.filesDir, "webview_config.json")
         if (wf.exists()) files["webview.json"] = wf.readBytes()
+        val cf = File(app.filesDir, "corepatch_config.json")
+        if (cf.exists()) files["corepatch.json"] = cf.readBytes()
+        val kf = File(app.filesDir, "keymap_config.json")
+        if (kf.exists()) files["keymap.json"] = kf.readBytes()
+        val gf = File(app.filesDir, "gesture_config.json")
+        if (gf.exists()) files["gesture.json"] = gf.readBytes()
+        val ff = File(app.filesDir, "freeform_config.json")
+        if (ff.exists()) files["freeform.json"] = ff.readBytes()
+        val uf = File(app.filesDir, "uninstall_config.json")
+        if (uf.exists()) files["uninstall.json"] = uf.readBytes()
+        val inf = File(app.filesDir, "install_config.json")
+        if (inf.exists()) files["install.json"] = inf.readBytes()
+        val rf = File(app.filesDir, "rotation_config.json")
+        if (rf.exists()) files["rotation.json"] = rf.readBytes()
+        val bf = File(app.filesDir, "bartint_config.json")
+        if (bf.exists()) files["bartint.json"] = bf.readBytes()
         files["prefs.json"] = prefs.dump().toString().toByteArray(Charsets.UTF_8)
+
         val saved = backup.saveFull(files, BuildConfig.VERSION_NAME)
         _state.value = _state.value.copy(
             backups = backup.listRestorable(),
             message = if (saved == null) "内容相同，未重复保存" else "已建立完整备份",
         )
         return true
+    }
+
+    fun setSelinuxOff(on: Boolean) {
+        prefs.selinuxOff = on
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = try {
+                SelinuxControl.apply(on)
+            } catch (_: Exception) {
+                false
+            }
+            val msg = if (on) {
+                if (ok) "已关闭 SELinux" else "关闭 SELinux 失败"
+            } else {
+                if (ok) "已恢复 SELinux 强制" else "恢复 SELinux 失败"
+            }
+            _state.value = _state.value.copy(selinuxOff = on, message = msg)
+        }
     }
 
     fun setApatchProtect(on: Boolean) {
@@ -670,6 +907,7 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(lockedHome = component)
         }
     }
+
 
     fun setOverlayEnabled(on: Boolean) {
         prefs.overlayEnabled = on
@@ -947,6 +1185,11 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
         persistVoice(liveVoice(recognizer = id))
     }
 
+    fun startSherpaDownload(id: String) {
+        val msg = VoiceModelDownload.start(getApplication(), id)
+        _state.value = _state.value.copy(message = msg)
+    }
+
     fun setVoiceTts(id: String) {
         persistVoice(liveVoice(ttsEngine = id))
     }
@@ -992,7 +1235,7 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun withoutRemovedRecognizer(cfg: VoiceConfig): VoiceConfig {
         val id = cfg.recognizer.lowercase()
-        return if (id.contains("vosk") || id.contains("tntwindow.editor.voice") || id.contains("google")) {
+        return if (id.contains("tntwindow.editor.voice")) {
             cfg.copy(recognizer = "")
         } else cfg
     }
@@ -1010,13 +1253,6 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun persistVoice(cfg: VoiceConfig) {
         val oldRec = _state.value.voiceRecognizer
-        voiceStore.save(cfg)
-        val r = voiceStore.push()
-        var extra = ""
-        if (r.ok && oldRec != cfg.recognizer) {
-            val b = bounceVoice()
-            extra = if (b.ok) " 已热切虚拟遥控器，不用重启手机。" else " 热切虚拟遥控器失败：" + b.err.ifBlank { b.out }
-        }
         _state.value = _state.value.copy(
             voiceEngine = cfg.engine,
             voiceCommands = cfg.commands,
@@ -1024,8 +1260,27 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
             voiceRecognizer = cfg.recognizer,
             voiceTts = cfg.ttsEngine,
             voiceAliases = cfg.aliases,
-            message = if (r.ok) "语音配置已写入。" + extra else "本地已保存，写入系统失败：" + r.err.ifBlank { r.out },
         )
+        viewModelScope.launch(Dispatchers.IO) {
+            voiceStore.save(cfg)
+            val r = voiceStore.push()
+            var extra = ""
+            if (r.ok && oldRec != cfg.recognizer) {
+                val b = bounceVoice()
+                extra = if (b.ok) " 已热切虚拟遥控器，不用重启手机。" else " 热切虚拟遥控器失败：" + b.err.ifBlank { b.out }
+            }
+            if (!r.ok || extra.isNotEmpty()) {
+                _state.value = _state.value.copy(
+                    voiceEngine = cfg.engine,
+                    voiceCommands = cfg.commands,
+                    voiceSpeak = cfg.speak,
+                    voiceRecognizer = cfg.recognizer,
+                    voiceTts = cfg.ttsEngine,
+                    voiceAliases = cfg.aliases,
+                    message = if (r.ok) extra.trim() else "本地已保存，写入系统失败：" + r.err.ifBlank { r.out },
+                )
+            }
+        }
     }
 
     private fun bounceVoice(): ShellResult {
@@ -1034,8 +1289,13 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshVoiceEngines() {
         viewModelScope.launch(Dispatchers.IO) {
-            val pm = getApplication<Application>().packageManager
-            val rec = try { VoiceEngines.recognizers(pm) } catch (_: Exception) { emptyList() }
+            val app = getApplication<Application>()
+            val pm = app.packageManager
+            val recSys = try { VoiceEngines.recognizers(pm) } catch (_: Exception) { emptyList() }
+            val recLocal = VoiceAsrPacks.all.filter { VoiceModelDownload.isReady(app, it) }.map {
+                VoiceEngineInfo(it.id, it.title)
+            }
+            val rec = recLocal + recSys.filter { sys -> recLocal.none { it.id == sys.id } }
             val tts = try { VoiceEngines.tts(pm) } catch (_: Exception) { emptyList() }
             _state.value = _state.value.copy(
                 voiceRecognizers = rec,
@@ -1167,17 +1427,538 @@ class TntViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun persistWebView(cfg: WebViewConfig) {
-        webViewStore.save(cfg)
-        val r = webViewStore.push()
-        _state.value = _state.value.copy(
-            webViewInject = cfg.inject,
-            message = if (r.ok) "已写入注入配置。第一次或改模块后要重启手机。" else "本地已保存，写入系统失败：" + r.err.ifBlank { r.out },
-        )
+        _state.value = _state.value.copy(webViewInject = cfg.inject)
+        viewModelScope.launch(Dispatchers.IO) {
+            webViewStore.save(cfg)
+            val r = webViewStore.push()
+            if (!r.ok) {
+                _state.value = _state.value.copy(
+                    webViewInject = cfg.inject,
+                    message = "本地已保存，写入系统失败：" + r.err.ifBlank { r.out },
+                )
+            }
+        }
     }
 
     private fun fail(msg: String): Boolean {
         _state.value = _state.value.copy(busy = false, message = msg, askRestart = false)
         return false
+    }
+
+    fun setCorePatch(key: String, on: Boolean) {
+        persistCorePatch(_state.value.corePatch.with(key, on))
+    }
+
+    fun setCorePatchPreset(n: Int) {
+        persistCorePatch(CorePatchConfig.preset(n), notice = true)
+    }
+
+    private fun persistCorePatch(cfg: CorePatchConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(corePatch = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            corePatchStore.save(cfg)
+            val r = corePatchStore.push()
+            if (cfg.verifyAgent && r.ok) {
+                try { QuietInstall.apply() } catch (_: Exception) {}
+            }
+            try { WebViewControl.ensurePackages(CorePatchStore.SCOPE) } catch (_: Exception) {}
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    corePatch = cfg,
+                    message = if (r.ok) {
+                        if (notice) "已写入核心破解。安装相关项需 LSPosed 对 android 生效，必要时重启。" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+
+    fun persistKeyMap(cfg: KeyMapConfig, notice: Boolean = false) {
+        val next = cfg.withBuiltins()
+        _state.value = _state.value.copy(keyMap = next)
+        viewModelScope.launch(Dispatchers.IO) {
+            keyMapStore.save(next)
+            val r = keyMapStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    keyMap = next,
+                    message = if (r.ok) {
+                        if (notice) "按键映射已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setKeyMapEnabled(on: Boolean) {
+        persistKeyMap(_state.value.keyMap.copy(enabled = on), notice = on)
+    }
+
+    fun setKeyMapVibrate(on: Boolean) {
+        persistKeyMap(_state.value.keyMap.copy(vibrate = on))
+    }
+
+    fun setKeyMapTiming(longMs: Int? = null, doubleMs: Int? = null, comboMs: Int? = null) {
+        val cfg = _state.value.keyMap
+        persistKeyMap(
+            cfg.copy(
+                longMs = longMs ?: cfg.longMs,
+                doubleMs = doubleMs ?: cfg.doubleMs,
+                comboMs = comboMs ?: cfg.comboMs,
+            )
+        )
+    }
+
+    fun addKey(code: Int, name: String) {
+        val cfg = _state.value.keyMap
+        if (cfg.keys.any { it.code == code }) {
+            _state.value = _state.value.copy(message = "该按键已添加")
+            return
+        }
+        persistKeyMap(cfg.copy(keys = cfg.keys + KeyBinding(id = "k" + code, code = code, name = name.ifBlank { KeyNames.of(code) }, click = KeyAction.default(), doubleClick = KeyAction.default(), longPress = KeyAction.default())))
+    }
+
+    fun removeKey(id: String) {
+        persistKeyMap(_state.value.keyMap.copy(keys = _state.value.keyMap.keys.filter { it.id != id }))
+    }
+
+    fun setKeyEnabled(id: String, on: Boolean) {
+        persistKeyMap(_state.value.keyMap.copy(keys = _state.value.keyMap.keys.map { if (it.id == id) it.copy(enabled = on) else it }))
+    }
+
+    fun addCombo() {
+        val cfg = _state.value.keyMap
+        persistKeyMap(cfg.copy(combos = cfg.combos + KeyCombo(id = "c" + System.currentTimeMillis(), name = "组合键" + (cfg.combos.size + 1), timeoutMs = cfg.comboMs)))
+    }
+
+    fun removeCombo(id: String) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.filter { it.id != id }))
+    }
+
+    fun setComboEnabled(id: String, on: Boolean) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { if (it.id == id) it.copy(enabled = on) else it }))
+    }
+
+    fun setComboName(id: String, name: String) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { if (it.id == id) it.copy(name = name) else it }))
+    }
+
+    fun setComboOrdered(id: String, on: Boolean) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { if (it.id == id) it.copy(ordered = on) else it }))
+    }
+
+    fun setComboTimeout(id: String, ms: Int) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { if (it.id == id) it.copy(timeoutMs = ms.coerceIn(120, 3000)) else it }))
+    }
+
+    fun addComboKey(id: String, code: Int) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { item ->
+            if (item.id != id) item else if (item.codes.contains(code)) item else item.copy(codes = item.codes + code)
+        }))
+    }
+
+    fun toggleComboKey(id: String, code: Int) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { item ->
+            if (item.id != id) item
+            else if (item.codes.contains(code)) item.copy(codes = item.codes.filter { it != code })
+            else item.copy(codes = item.codes + code)
+        }))
+    }
+
+    fun removeComboKey(id: String, code: Int) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { item ->
+            if (item.id != id) item else item.copy(codes = item.codes.filter { it != code })
+        }))
+    }
+
+    fun reverseComboKeys(id: String) {
+        persistKeyMap(_state.value.keyMap.copy(combos = _state.value.keyMap.combos.map { item ->
+            if (item.id != id) item else item.copy(codes = item.codes.reversed())
+        }))
+    }
+
+    fun setGestureHighlight(on: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            gestureStore.setHighlight(on)
+        }
+    }
+
+    fun persistGesture(cfg: GestureConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(gesture = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            gestureStore.save(cfg)
+            val r = gestureStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    gesture = cfg,
+                    message = if (r.ok) {
+                        if (notice) "全面屏手势已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setGestureEnabled(on: Boolean) {
+        persistGesture(_state.value.gesture.copy(enabled = on), notice = on)
+    }
+
+    fun setGestureVibrate(on: Boolean) {
+        persistGesture(_state.value.gesture.copy(vibrate = on))
+    }
+
+    fun setGestureLockscreen(on: Boolean) {
+        persistGesture(_state.value.gesture.copy(lockscreen = on))
+    }
+
+    fun setGestureTiming(thickness: Int? = null, longMs: Int? = null, doubleMs: Int? = null, hoverMs: Int? = null, hoverPx: Int? = null) {
+        val cfg = _state.value.gesture
+        persistGesture(
+            cfg.copy(
+                thickness = (thickness ?: cfg.thickness).coerceIn(12, 80),
+                longMs = longMs ?: cfg.longMs,
+                doubleMs = doubleMs ?: cfg.doubleMs,
+                hoverMs = (hoverMs ?: cfg.hoverMs).coerceIn(120, 1500),
+                hoverPx = (hoverPx ?: cfg.hoverPx).coerceIn(8, 80),
+            )
+        )
+    }
+
+    fun setGestureEdgeEnabled(id: String, on: Boolean) {
+        val cfg = _state.value.gesture
+        val edge = cfg.edge(id) ?: return
+        persistGesture(cfg.withEdge(edge.copy(enabled = on)))
+    }
+
+    fun setGestureAction(edgeId: String, slot: String, action: KeyAction) {
+        val cfg = _state.value.gesture
+        val edge = cfg.edge(edgeId) ?: return
+        persistGesture(cfg.withEdge(edge.withAction(slot, action)), notice = true)
+    }
+
+    fun persistFreeform(cfg: FreeformConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(freeform = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            freeformStore.save(cfg)
+            val r = freeformStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    freeform = cfg,
+                    message = if (r.ok) {
+                        if (notice) "小窗设置已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setFreeformHighlight(on: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            freeformStore.setHighlight(on)
+        }
+    }
+
+    fun setFreeformSidebar(on: Boolean) {
+        persistFreeform(_state.value.freeform.copy(sidebar = on), notice = on)
+    }
+
+    fun setFreeformSidebarLockscreen(on: Boolean) {
+        persistFreeform(_state.value.freeform.copy(sidebarLockscreen = on))
+    }
+
+    fun setFreeformSide(side: String) {
+        persistFreeform(_state.value.freeform.copy(sidebarSide = side))
+    }
+
+    fun setFreeformTopPct(v: Int) {
+        persistFreeform(_state.value.freeform.copy(sidebarTopPct = v.coerceIn(0, 90)))
+    }
+
+    fun setFreeformSize(widthPct: Int? = null, heightPct: Int? = null, maxWindows: Int? = null) {
+        val cfg = _state.value.freeform
+        persistFreeform(
+            cfg.copy(
+                widthPct = (widthPct ?: cfg.widthPct).coerceIn(40, 95),
+                heightPct = (heightPct ?: cfg.heightPct).coerceIn(35, 90),
+                maxWindows = (maxWindows ?: cfg.maxWindows).coerceIn(1, 8),
+            )
+        )
+    }
+
+    fun setFreeformDot(id: String, action: KeyAction) {
+        val cfg = _state.value.freeform
+        persistFreeform(
+            when (id) {
+                "left" -> cfg.copy(left = action)
+                "right" -> cfg.copy(right = action)
+                else -> cfg
+            },
+            notice = true,
+        )
+    }
+
+    fun addFreeformApp(pkg: String) {
+        addFreeformApps(listOf(pkg))
+    }
+
+    fun addFreeformApps(pkgs: List<String>) {
+        val cfg = _state.value.freeform
+        val extra = pkgs.filter { it.isNotBlank() && it !in cfg.apps }
+        if (extra.isEmpty()) return
+        persistFreeform(cfg.copy(apps = cfg.apps + extra))
+    }
+
+    fun resetGesture() {
+        persistGesture(id.tntwindow.editor.domain.GestureConfig.default(), notice = true)
+    }
+
+    fun resetKeyMap() {
+        persistKeyMap(id.tntwindow.editor.domain.KeyMapConfig.default(), notice = true)
+    }
+
+    fun resetFreeform() {
+        persistFreeform(id.tntwindow.editor.domain.FreeformConfig.default(), notice = true)
+    }
+
+    fun persistUninstall(cfg: UninstallConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(uninstall = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            uninstallStore.save(cfg)
+            val r = uninstallStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    uninstall = cfg,
+                    message = if (r.ok) {
+                        if (notice) "卸载接管已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setUninstallEnabled(on: Boolean) {
+        persistUninstall(_state.value.uninstall.copy(enabled = on), notice = true)
+    }
+
+    fun setUninstallHandler(pkg: String, cls: String) {
+        persistUninstall(_state.value.uninstall.copy(pkg = pkg, cls = cls), notice = true)
+    }
+
+    fun resetUninstall() {
+        persistUninstall(UninstallConfig.default(), notice = true)
+    }
+
+    fun refreshUninstallHandlers() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = try {
+                UninstallApps.list(getApplication())
+            } catch (_: Exception) {
+                emptyList()
+            }
+            _state.value = _state.value.copy(uninstallHandlers = list)
+        }
+    }
+
+    fun persistInstall(cfg: InstallConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(install = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            installStore.save(cfg)
+            val r = installStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    install = cfg,
+                    message = if (r.ok) {
+                        if (notice) "安装接管已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setInstallEnabled(on: Boolean) {
+        val inst = _state.value.install.copy(enabled = on)
+        persistInstall(inst, notice = true)
+        if (inst.shareUninstall) persistUninstall(_state.value.uninstall.copy(enabled = on, pkg = inst.pkg, cls = inst.cls), notice = false)
+    }
+
+    fun setInstallHandler(pkg: String, cls: String) {
+        val inst = _state.value.install.copy(pkg = pkg, cls = cls)
+        persistInstall(inst, notice = true)
+        if (inst.shareUninstall) persistUninstall(_state.value.uninstall.copy(enabled = inst.enabled, pkg = pkg, cls = cls), notice = false)
+    }
+
+    fun resetInstall() {
+        persistInstall(InstallConfig.default(), notice = true)
+        persistUninstall(UninstallConfig.default(), notice = false)
+    }
+
+    fun refreshInstallHandlers() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = try {
+                InstallApps.list(getApplication())
+            } catch (_: Exception) {
+                emptyList()
+            }
+            _state.value = _state.value.copy(installHandlers = list)
+        }
+    }
+
+    fun persistRotation(cfg: RotationConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(rotation = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            rotationStore.save(cfg)
+            val r = rotationStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    rotation = cfg,
+                    message = if (r.ok) {
+                        if (notice) "屏幕方向已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setRotationEnabled(on: Boolean) {
+        persistRotation(_state.value.rotation.copy(enabled = on, locked = if (on) _state.value.rotation.locked else false), notice = true)
+    }
+
+    fun reverseRotation() {
+        val rot = try {
+            val wm = getApplication<Application>().getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            wm.defaultDisplay.rotation
+        } catch (_: Exception) {
+            _state.value.rotation.rotation
+        }
+        persistRotation(_state.value.rotation.copy(enabled = true, locked = true, rotation = (rot + 2) % 4), notice = true)
+    }
+
+    fun setRotationDefault(rot: Int?) {
+        val cur = _state.value.rotation
+        if (rot == null) {
+            persistRotation(cur.copy(locked = false), notice = true)
+        } else {
+            persistRotation(cur.copy(enabled = true, locked = true, rotation = rot.coerceIn(0, 3)), notice = true)
+        }
+    }
+
+    fun resetRotation() {
+        persistRotation(RotationConfig.default(), notice = true)
+    }
+
+    fun persistBarTint(cfg: BarTintConfig, notice: Boolean = false) {
+        _state.value = _state.value.copy(barTint = cfg)
+        viewModelScope.launch(Dispatchers.IO) {
+            barTintStore.save(cfg)
+            val r = barTintStore.push()
+            if (!r.ok || notice) {
+                _state.value = _state.value.copy(
+                    barTint = cfg,
+                    message = if (r.ok) {
+                        if (notice) "任务栏反色已生效" else _state.value.message
+                    } else {
+                        "本地已保存，写入系统失败：" + r.err.ifBlank { r.out }
+                    },
+                )
+            }
+        }
+    }
+
+    fun setBarTintNav(on: Boolean) {
+        persistBarTint(_state.value.barTint.copy(nav = on), notice = true)
+    }
+
+    fun setShareUninstall(on: Boolean) {
+        val inst = _state.value.install.copy(shareUninstall = on)
+        persistInstall(inst, notice = true)
+        if (on) {
+            persistUninstall(_state.value.uninstall.copy(enabled = inst.enabled, pkg = inst.pkg, cls = inst.cls), notice = false)
+        }
+    }
+
+    fun resetCorePatch() {
+        persistCorePatch(id.tntwindow.editor.domain.CorePatchConfig.default(), notice = true)
+    }
+
+    fun setVibrateFeel(ms: Int, amp: Int) {
+        val m = ms.coerceIn(10, 200)
+        val a = amp.coerceIn(1, 255)
+        persistGesture(_state.value.gesture.copy(vibrateMs = m, vibrateAmp = a))
+        persistKeyMap(_state.value.keyMap.copy(vibrateMs = m, vibrateAmp = a))
+    }
+
+    fun removeFreeformApp(pkg: String) {
+        val cfg = _state.value.freeform
+        persistFreeform(cfg.copy(apps = cfg.apps.filter { it != pkg }))
+    }
+
+    fun setKeyAction(slot: String, id: String, action: KeyAction) {
+        val cfg = _state.value.keyMap
+        val next = when (slot) {
+            "click" -> cfg.copy(keys = cfg.keys.map { if (it.id == id) it.copy(click = action) else it })
+            "double" -> cfg.copy(keys = cfg.keys.map { if (it.id == id) it.copy(doubleClick = action) else it })
+            "long" -> cfg.copy(keys = cfg.keys.map { if (it.id == id) it.copy(longPress = action) else it })
+            "triple" -> cfg.copy(keys = cfg.keys.map { if (it.id == id) it.copy(tripleClick = action) else it })
+            "combo" -> cfg.copy(combos = cfg.combos.map { if (it.id == id) it.copy(action = action) else it })
+            else -> cfg
+        }
+        persistKeyMap(next, notice = true)
+    }
+
+    fun beginKeyCapture() {
+        lastCapture = null
+        keyMapStore.setCapture(true)
+        _state.value = _state.value.copy(keyCapturing = true)
+    }
+
+    fun endKeyCapture() {
+        lastCapture = null
+        _state.value = _state.value.copy(keyCapturing = false)
+        keyMapStore.setCapture(false)
+    }
+
+    fun pollKeyCapture(): Pair<Int, String>? {
+        lastCapture?.let { return it }
+        val hit = keyMapStore.readCapture()
+        if (hit != null) lastCapture = hit
+        return hit
+    }
+
+    fun noteCapturedKey(code: Int) {
+        if (!_state.value.keyCapturing) return
+        if (code == 0) return
+        val name = KeyNames.of(code)
+        lastCapture = code to name
+        viewModelScope.launch(Dispatchers.IO) {
+            keyMapStore.writeCaptured(code, name)
+        }
+    }
+
+    fun testShell(cmd: String, root: Boolean, system: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val r = when {
+                root -> RootAccess.su(cmd)
+                system -> RootAccess.suUser(1000, cmd)
+                else -> RootAccess.sh(cmd)
+            }
+            val text = (r.out + "\n" + r.err).trim()
+            _state.value = _state.value.copy(message = if (r.ok) text.ifBlank { "已运行" } else text.ifBlank { "运行失败" })
+        }
     }
 }
 

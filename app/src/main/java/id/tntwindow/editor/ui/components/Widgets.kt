@@ -93,8 +93,8 @@ fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PathText(text: String) {
-    Text(text, style = Mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun PathText(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = Mono, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 @Composable
@@ -298,6 +298,7 @@ fun SettingsInfoRow(
     trailing: String? = null,
     divider: Boolean = true,
     subtitleMaxLines: Int = 2,
+    iconPkg: String = "",
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
@@ -308,6 +309,10 @@ fun SettingsInfoRow(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (iconPkg.isNotBlank()) {
+                AppIcon(iconPkg, 36)
+                Spacer(Modifier.size(12.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 if (subtitle.isNotBlank()) {
@@ -343,6 +348,8 @@ fun SettingsSwitchRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
     divider: Boolean = true,
+    subtitle: String = "",
+    iconPkg: String = "",
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
@@ -352,7 +359,21 @@ fun SettingsSwitchRow(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(end = 12.dp))
+            if (iconPkg.isNotBlank()) {
+                AppIcon(iconPkg, 36)
+                Spacer(Modifier.size(12.dp))
+            }
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (subtitle.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        subtitle,
+                        color = scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
             Switch(checked = checked, onCheckedChange = onChange)
         }
         if (divider) {
@@ -375,6 +396,61 @@ fun SettingsNavRow(
     divider: Boolean = true,
 ) {
     SettingsInfoRow(title, subtitle, onClick = onClick, trailing = "›", divider = divider)
+}
+
+@Composable
+fun SettingsNavSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    divider: Boolean = true,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clickable(onClick = onClick)
+                    .padding(top = 6.dp, bottom = 6.dp, end = 12.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (subtitle.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        subtitle,
+                        color = scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            Switch(checked = checked, onCheckedChange = onChange)
+            Text(
+                "›",
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier
+                    .clickable(onClick = onClick)
+                    .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+            )
+        }
+        if (divider) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .padding(start = 16.dp)
+                    .background(scheme.outline.copy(alpha = 0.35f)),
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

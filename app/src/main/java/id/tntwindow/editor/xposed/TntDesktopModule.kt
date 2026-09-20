@@ -124,7 +124,6 @@ class TntDesktopModule : IXposedHookLoadPackage {
         }
         hookDialogShow(cl, block)
     }
-
     private fun hookDialogShow(cl: ClassLoader, hook: XC_MethodHook) {
         val dialog = try {
             XposedHelpers.findClass("android.app.Dialog", cl)

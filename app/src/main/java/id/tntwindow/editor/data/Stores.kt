@@ -252,6 +252,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("apatch_protect", true)
         set(v) { sp.edit().putBoolean("apatch_protect", v).apply() }
 
+    var selinuxOff: Boolean
+        get() = sp.getBoolean("selinux_off", false)
+        set(v) { sp.edit().putBoolean("selinux_off", v).apply() }
+
     var quietInstall: Boolean
         get() = sp.getBoolean("quiet_install", true)
         set(v) { sp.edit().putBoolean("quiet_install", v).apply() }
@@ -284,6 +288,7 @@ class Prefs(context: Context) {
         o.put("baseline_dp", baselineWidthDp)
         o.put("col_schema", collectionSchema)
         o.put("apatch_protect", apatchProtect)
+        o.put("selinux_off", selinuxOff)
         o.put("quiet_install", quietInstall)
         o.put("locked_home", lockedHome)
         o.put("overlay_on", overlayEnabled)
@@ -308,6 +313,7 @@ class Prefs(context: Context) {
         if (o.has("baseline_dp")) baselineWidthDp = o.optInt("baseline_dp", baselineWidthDp)
         if (o.has("col_schema")) collectionSchema = o.optInt("col_schema", collectionSchema)
         apatchProtect = o.optBoolean("apatch_protect", apatchProtect)
+        selinuxOff = o.optBoolean("selinux_off", selinuxOff)
         quietInstall = o.optBoolean("quiet_install", quietInstall)
         lockedHome = o.optString("locked_home", lockedHome)
         overlayEnabled = o.optBoolean("overlay_on", overlayEnabled)
@@ -440,19 +446,14 @@ class InstalledApps(private val context: Context) {
             } catch (_: Exception) {
                 info.packageName
             }
-            val pi = try {
-                pm.getPackageInfo(info.packageName, 0)
-            } catch (_: Exception) {
-                null
-            }
             val cat = if (Build.VERSION.SDK_INT >= 26) info.category else -1
             list += InstalledApp(
                 packageName = info.packageName,
                 label = label,
                 system = info.flags and ApplicationInfo.FLAG_SYSTEM != 0,
                 hasLauncher = launcher.contains(info.packageName),
-                firstInstallTime = pi?.firstInstallTime ?: 0L,
-                lastUpdateTime = pi?.lastUpdateTime ?: 0L,
+                firstInstallTime = try { java.io.File(info.sourceDir).lastModified() } catch (_: Exception) { 0L },
+                lastUpdateTime = try { java.io.File(info.sourceDir).lastModified() } catch (_: Exception) { 0L },
                 category = cat,
             )
         }

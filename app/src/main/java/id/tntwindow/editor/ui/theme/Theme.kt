@@ -3,6 +3,8 @@ package id.tntwindow.editor.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -14,6 +16,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
@@ -68,6 +71,14 @@ val Mono = TextStyle(
     letterSpacing = (-0.2).sp,
 )
 
+private val TntShapes = Shapes(
+    extraSmall = RoundedCornerShape(16.dp),
+    small = RoundedCornerShape(16.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(16.dp),
+)
+
 private val TntTypography = Typography(
     titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, letterSpacing = (-0.4).sp),
     titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 17.sp, letterSpacing = (-0.2).sp),
@@ -91,11 +102,12 @@ fun TntTheme(mode: String = "system", content: @Composable () -> Unit) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = scheme.background.toArgb()
-            window.navigationBarColor = scheme.background.toArgb()
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             val insets = WindowCompat.getInsetsController(window, view)
             insets.isAppearanceLightStatusBars = !dark
             insets.isAppearanceLightNavigationBars = !dark
         }
     }
-    MaterialTheme(colorScheme = scheme, typography = TntTypography, content = content)
+    MaterialTheme(colorScheme = scheme, typography = TntTypography, shapes = TntShapes, content = content)
 }
+

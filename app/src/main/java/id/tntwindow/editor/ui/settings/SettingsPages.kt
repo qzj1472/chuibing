@@ -58,7 +58,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsPage(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun SettingsPage(title: String, onBack: () -> Unit, onReset: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Scaffold(
         containerColor = scheme.background,
@@ -68,6 +68,11 @@ fun SettingsPage(title: String, onBack: () -> Unit, content: @Composable ColumnS
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    if (onReset != null) {
+                        TextButton(onClick = onReset) { Text("重置") }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = scheme.background),
@@ -223,7 +228,17 @@ fun TntSettingsScreen(state: EditorState, vm: TntViewModel, onBack: () -> Unit) 
     var ask by remember { mutableStateOf(vm.prefs.askRestartAfterWrite) }
     var lock by remember(state.homeLockEnabled) { mutableStateOf(state.homeLockEnabled) }
     var overlay by remember(state.overlayEnabled) { mutableStateOf(state.overlayEnabled) }
+    val showTouchpad = state.status.pcMode == 1 || state.status.pcMode == 2
     SettingsPage("TNT", onBack) {
+        SmallTitle("模式")
+        SettingsGroup {
+            SettingsInfoRow("镜像", "手机画面镜像到 TNT", onClick = { vm.setTntMode(0) }, trailing = if (state.status.pcMode == 0) "✓" else null)
+            SettingsInfoRow("桌面", "TNT 桌面模式", onClick = { vm.setTntMode(1) }, trailing = if (state.status.pcMode == 1) "✓" else null)
+            SettingsInfoRow("分享", "分享模式", onClick = { vm.setTntMode(2) }, trailing = if (state.status.pcMode == 2) "✓" else null, divider = false)
+        }
+        if (showTouchpad) {
+            PrimaryButton("虚拟触摸板", onClick = { vm.openTouchpad() }, modifier = Modifier.fillMaxWidth(), enabled = state.status.rootOk)
+        }
         Panel {
             RowSwitch("锁桌面", lock) {
                 lock = it

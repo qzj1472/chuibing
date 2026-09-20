@@ -4,25 +4,31 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import id.tntwindow.editor.Feel
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import id.tntwindow.editor.ui.components.Panel
+import id.tntwindow.editor.ui.components.PrimaryButton
 import id.tntwindow.editor.EditorState
 import id.tntwindow.editor.TntViewModel
 import id.tntwindow.editor.ui.components.SettingsGroup
@@ -45,6 +51,13 @@ fun SettingsScreen(
     }
     val defaultCol = state.collections.firstOrNull { it.id == vm.prefs.defaultCollectionId }?.name ?: "未选"
     var themeMenu by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    var vibMs by remember(state.gesture.vibrateMs, state.keyMap.vibrateMs) {
+        mutableFloatStateOf(((state.gesture.vibrateMs + state.keyMap.vibrateMs) / 2).toFloat().coerceIn(10f, 200f))
+    }
+    var vibAmp by remember(state.gesture.vibrateAmp, state.keyMap.vibrateAmp) {
+        mutableFloatStateOf(((state.gesture.vibrateAmp + state.keyMap.vibrateAmp) / 2).toFloat().coerceIn(1f, 255f))
+    }
 
     Scaffold(
         containerColor = scheme.background,
@@ -76,6 +89,31 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+            SmallTitle("震动")
+            Panel {
+                Text("震动时长  " + vibMs.toInt() + " ms")
+                Slider(
+                    value = vibMs,
+                    onValueChange = { vibMs = it },
+                    valueRange = 10f..200f,
+                    onValueChangeFinished = { vm.setVibrateFeel(vibMs.toInt(), vibAmp.toInt()) },
+                )
+                Text("震动强度  " + vibAmp.toInt())
+                Slider(
+                    value = vibAmp,
+                    onValueChange = { vibAmp = it },
+                    valueRange = 1f..255f,
+                    onValueChangeFinished = { vm.setVibrateFeel(vibMs.toInt(), vibAmp.toInt()) },
+                )
+                PrimaryButton(
+                    "试一下",
+                    onClick = {
+                        vm.setVibrateFeel(vibMs.toInt(), vibAmp.toInt())
+                        Feel.vibrate(ctx, vibMs.toInt(), vibAmp.toInt())
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             SmallTitle("窗口")
             SettingsGroup {

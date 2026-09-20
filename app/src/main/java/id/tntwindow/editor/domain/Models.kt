@@ -185,6 +185,21 @@ object Paths {
     const val VOICE = "/data/system/tnt_voice_config.json"
     const val HOME_LOCK = "/data/system/tnt_home_lock.json"
     const val WEBVIEW = "/data/system/tnt_webview_config.json"
+    const val COREPATCH = "/data/system/tnt_corepatch_config.json"
+    const val KEYMAP = "/data/system/tnt_keymap_config.json"
+    const val KEYMAP_CAPTURE = "/data/system/tnt_keymap_capture.json"
+    const val GESTURE = "/data/system/tnt_gesture_config.json"
+    const val GESTURE_HIGHLIGHT = "/data/local/tmp/tnt_gesture_highlight"
+    const val GESTURE_HIGHLIGHT_SYS = "/data/system/tnt_gesture_highlight"
+    const val FREEFORM = "/data/system/tnt_freeform_config.json"
+    const val FREEFORM_REQUEST = "/data/system/tnt_freeform_request"
+    const val FREEFORM_REQUEST_TMP = "/data/local/tmp/tnt_freeform_request"
+    const val FREEFORM_HIGHLIGHT = "/data/local/tmp/tnt_freeform_highlight"
+    const val FREEFORM_HIGHLIGHT_SYS = "/data/system/tnt_freeform_highlight"
+    const val UNINSTALL = "/data/system/tnt_uninstall_config.json"
+    const val INSTALL = "/data/system/tnt_install_config.json"
+    const val ROTATION = "/data/system/tnt_rotation_config.json"
+    const val BARTINT = "/data/system/tnt_bartint_config.json"
     const val WEBVIEW_SETTINGS = "android.settings.WEBVIEW_SETTINGS"
     const val WEBVIEW_ACTIVITY = "com.android.settings.WebViewImplementation"
     const val SETTINGS_PKG = "com.android.settings"
@@ -251,3 +266,5 @@ object WindowModes {
     val ROW4 = listOf(19 to "竖屏最大化", 20 to "竖屏密度")
     val ALL = ROW1 + ROW2 + ROW3 + ROW4
 }
+
+
