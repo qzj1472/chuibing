@@ -11,8 +11,8 @@ android {
         applicationId = "id.tntwindow.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 38
-        versionName = "1.7.25"
+        versionCode = 118
+        versionName = "1.7.105"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
