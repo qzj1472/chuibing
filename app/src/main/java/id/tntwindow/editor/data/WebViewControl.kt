@@ -141,6 +141,7 @@ object WebViewControl {
                 "com.smartisanos.sara",
                 "com.smartisanos.desktop",
                 "com.android.desktop.systemui",
+                "com.android.systemui",
                 "id.tntwindow.editor",
             )
         )
@@ -148,6 +149,10 @@ object WebViewControl {
 
     fun ensureFrameworkScope(): ShellResult {
         return ensureScope(listOf("android", "system"))
+    }
+
+    fun ensurePackages(pkgs: List<String>): ShellResult {
+        return ensureScope(pkgs)
     }
 
     private fun ensureScope(want: List<String>): ShellResult {
