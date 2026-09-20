@@ -74,10 +74,7 @@ object ApatchProtect {
             val t = line.trim()
             if (t.isEmpty() || t.startsWith("pkg,")) continue
             val row = parseRow(t)
-            if (row == null) {
-                outLines.add(line)
-                continue
-            }
+            if (row == null) continue
             if (!seen.add(row.pkg)) continue
             if (pinPkgs.contains(row.pkg)) {
                 val uid = uidMap[row.pkg] ?: row.uid
@@ -108,8 +105,7 @@ object ApatchProtect {
         }
         val text = outLines.joinToString("\n") + "\n"
         writePin(context, pinPkgs, byPkg)
-        val now = normalize(liveText)
-        if (normalize(text) != now) writeConfig(text)
+        if (needsWrite(origLines, pinPkgs, byPkg)) writeConfig(text)
         return ApatchStatus(pinPkgs.size, fixed, mod, if (mod) "ok" else "module")
     }
 
@@ -149,6 +145,22 @@ object ApatchProtect {
             RootAccess.su("rm -f '" + staged + "'")
         }
         RootAccess.su("rm -f '" + MODULE_DIR + "/disable' /data/adb/modules_update/chuibing_apatch/disable")
+        val sdName = "99chuibing_apatch.sh"
+        val sdLocal = File(cache, sdName)
+        try {
+            context.assets.open("module/" + sdName).use { ins ->
+                sdLocal.outputStream().use { ins.copyTo(it) }
+            }
+            val staged = "/data/local/tmp/cb_" + sdName
+            RootAccess.su("mkdir -p /data/adb/service.d")
+            RootAccess.suMount("mkdir -p /data/adb/service.d")
+            RootAccess.su("cat '" + sdLocal.absolutePath + "' > '" + staged + "'")
+            val w1 = RootAccess.su("cat '" + staged + "' > '/data/adb/service.d/" + sdName + "' && chmod 755 '/data/adb/service.d/" + sdName + "'")
+            val w2 = RootAccess.suMount("cat '" + staged + "' > '/data/adb/service.d/" + sdName + "' && chmod 755 '/data/adb/service.d/" + sdName + "'")
+            if (w1.ok || w2.ok) ok = true
+            RootAccess.su("rm -f '" + staged + "'")
+        } catch (_: Exception) {
+        }
         val check = RootAccess.su("test -f '" + MODULE_DIR + "/module.prop' -a -f '" + MODULE_DIR + "/service.sh' && echo yes")
         val check2 = RootAccess.suMount("test -f '" + MODULE_DIR + "/module.prop' -a -f '" + MODULE_DIR + "/service.sh' && echo yes")
         return check.out.contains("yes") || check2.out.contains("yes") || ok
@@ -156,10 +168,13 @@ object ApatchProtect {
 
     fun startGuard(context: Context): ShellResult {
         installModule(context)
+        RootAccess.su("rm -f '" + MODULE_DIR + "/disable'")
         RootAccess.suMount("rm -f '" + MODULE_DIR + "/disable'")
+        RootAccess.su("sh '" + MODULE_DIR + "/service.sh' merge")
+        RootAccess.suMount("sh '" + MODULE_DIR + "/service.sh' merge")
         val d = "\u0024"
-        RootAccess.su("old=" + d + "(cat " + PID + " 2>/dev/null); if [ -n \"" + d + "old\" ]; then kill " + d + "old 2>/dev/null; fi; rm -f " + PID)
-        return RootAccess.su("sh '" + MODULE_DIR + "/service.sh'")
+        val start = "old=" + d + "(cat " + PID + " 2>/dev/null); if [ -n \"" + d + "old\" ] && kill -0 \"" + d + "old\" 2>/dev/null; then exit 0; fi; trap '' HUP; if command -v setsid >/dev/null 2>&1; then setsid sh '" + MODULE_DIR + "/service.sh' >/dev/null 2>&1 & else nohup sh '" + MODULE_DIR + "/service.sh' >/dev/null 2>&1 & fi"
+        return RootAccess.su(start)
     }
 
     fun stopGuard(): ShellResult {
@@ -207,13 +222,36 @@ object ApatchProtect {
         val toUid = p[4].trim().toIntOrNull() ?: return null
         var sctx = p[5].trim()
         if (sctx.isEmpty()) sctx = SCTX
-        if (pkg.isEmpty()) return null
+        if (pkg.isEmpty() || !pkg.contains('.')) return null
         return ApRow(pkg, exclude, allow, uid, toUid, sctx)
     }
 
     private fun renderRow(r: ApRow): String {
         val sctx = if (r.sctx.isBlank()) SCTX else r.sctx
         return r.pkg + "," + r.exclude + "," + r.allow + "," + r.uid + "," + r.toUid + "," + sctx
+    }
+
+    private fun needsWrite(origLines: List<String>, pinPkgs: Set<String>, byPkg: Map<String, ApRow>): Boolean {
+        val seen = LinkedHashSet<String>()
+        val live = LinkedHashMap<String, ApRow>()
+        var bad = false
+        for (line in origLines) {
+            val raw = line.trim()
+            if (raw.isEmpty() || raw.startsWith("pkg,")) continue
+            val row = parseRow(raw)
+            if (row == null) {
+                bad = true
+                continue
+            }
+            if (!seen.add(row.pkg)) bad = true
+            if (!live.containsKey(row.pkg)) live[row.pkg] = row
+        }
+        if (bad) return true
+        for (pkg in pinPkgs) {
+            val row = live[pkg]
+            if (row == null || row.allow != 1) return true
+        }
+        return false
     }
 
     private fun normalize(text: String): String {
@@ -231,8 +269,9 @@ object ApatchProtect {
         val copy = RootAccess.su("cat '" + tmp.absolutePath + "' > '" + staged + "'")
         tmp.delete()
         if (!copy.ok) return copy
+        val tmpPath = path + ".tmp"
         return RootAccess.suMount(
-            "mkdir -p /data/adb/ap '" + MODULE_DIR + "' && touch '" + path + "' && cat '" + staged + "' > '" + path + "' && chmod 600 '" + path + "' && rm -f '" + staged + "'"
+            "mkdir -p /data/adb/ap '" + MODULE_DIR + "' && cat '" + staged + "' > '" + tmpPath + "' && chmod 600 '" + tmpPath + "' && mv -f '" + tmpPath + "' '" + path + "' && rm -f '" + staged + "'"
         )
     }
 

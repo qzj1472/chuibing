@@ -1,6 +1,6 @@
 id=chuibing_apatch
 name=锤柄超级用户守护
-version=1.7.25
-versionCode=38
+version=1.7.57
+versionCode=70
 author=锤柄
-description=APatch 模块：钉住超级用户勾选
+description=APatch 模块：钉住超级用户勾选，可选关闭 SELinux
