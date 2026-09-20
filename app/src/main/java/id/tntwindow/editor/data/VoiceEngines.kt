@@ -7,10 +7,7 @@ import java.util.LinkedHashMap
 
 object VoiceEngines {
     fun recognizers(pm: PackageManager): List<VoiceEngineInfo> {
-        return services(pm, Intent("android.speech.RecognitionService")).filterNot { engine ->
-            val p = engine.id.lowercase()
-            p.contains("vosk") || p.contains("tntwindow") || p.contains("google")
-        }
+        return services(pm, Intent("android.speech.RecognitionService"))
     }
 
     fun tts(pm: PackageManager): List<VoiceEngineInfo> {

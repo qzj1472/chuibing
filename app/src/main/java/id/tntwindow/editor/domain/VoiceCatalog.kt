@@ -39,7 +39,7 @@ object VoiceCatalog {
         Entry("Firefox", listOf("firefox", "火狐", "火狐浏览器"), listOf("org.mozilla.firefox"), "https://www.mozilla.org"),
         Entry("Telegram", listOf("telegram", "tg", "纸飞机", "电报"), listOf("org.telegram.messenger"), "https://web.telegram.org"),
         Entry("Discord", listOf("discord", "dc"), listOf("com.discord"), "https://discord.com"),
-        Entry("Twitter", listOf("twitter", "推特", "x"), listOf("com.twitter.android"), "https://x.com"),
+        Entry("Twitter", listOf("twitter", "推特", "x", "叉"), listOf("com.twitter.android"), "https://x.com"),
         Entry("Instagram", listOf("instagram", "ins", "ig"), listOf("com.instagram.android"), "https://www.instagram.com"),
         Entry("Facebook", listOf("facebook", "脸书", "fb"), listOf("com.facebook.katana"), "https://m.facebook.com"),
         Entry("WhatsApp", listOf("whatsapp", "wa"), listOf("com.whatsapp"), "https://web.whatsapp.com"),
@@ -74,10 +74,14 @@ object VoiceCatalog {
         Entry("设置", listOf("设置", "系统设置"), listOf("com.android.settings"), ""),
         Entry("相机", listOf("相机", "拍照"), listOf("com.android.camera2", "com.smartisanos.camera"), ""),
         Entry("相册", listOf("相册", "图库", "照片"), listOf("com.android.gallery3d", "com.smartisanos.gallery"), ""),
-        Entry("文件管理", listOf("文件", "文件管理", "mt管理器"), listOf("com.smartisanos.filemanager", "bin.mt.plus", "bin.mt.plus.canary"), ""),
+        Entry("锤柄", listOf("锤柄", "锤子补丁", "chuibing", "tntwindow"), listOf("id.tntwindow.editor"), ""),
+        Entry("MT管理器", listOf("mt管理器", "mtmanager", "mt manager", "mt杠两千", "杠两千", "mtplus", "mt加", "mt+", "binmt", "mt", "手机管理器", "手机管理", "emt管理器"), listOf("bin.mt.plus.canary", "bin.mt.plus"), ""),
+        Entry("文件管理", listOf("文件", "文件管理", "文件管理器"), listOf("com.smartisanos.filemanager"), ""),
         Entry("Termux", listOf("termux", "终端"), listOf("com.termux"), ""),
         Entry("计算器", listOf("计算器", "计算"), listOf("com.android.calculator2"), ""),
         Entry("时钟", listOf("时钟", "闹钟"), listOf("com.android.deskclock"), ""),
+        Entry("天气", listOf("天气", "天气预报", "气象"), listOf("com.smartisanos.weather", "com.android.weather"), ""),
+        Entry("便签", listOf("便签", "备忘录", "笔记"), listOf("com.smartisanos.notes"), ""),
         Entry("日历", listOf("日历", "日程"), listOf("com.android.calendar"), ""),
         Entry("短信", listOf("短信", "信息"), listOf("com.android.mms"), ""),
         Entry("电话", listOf("电话", "拨号"), listOf("com.android.dialer", "com.android.contacts"), ""),
@@ -124,8 +128,9 @@ object VoiceCatalog {
     private fun score(name: String, query: String): Int {
         val nn = name.lowercase().replace(" ", "")
         val q = query.lowercase().replace(" ", "")
-        if (nn.length < 2 || q.length < 2) return 0
+        if (nn.isEmpty() || q.isEmpty()) return 0
         if (nn == q) return 10000 + nn.length * 20
+        if (nn.length < 2 || q.length < 2) return 0
         if (nn in weak && nn != q) return 0
         return when {
             q.startsWith(nn) -> 7000 + nn.length * 30

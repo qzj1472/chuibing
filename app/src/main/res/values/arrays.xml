@@ -10,6 +10,13 @@
         <item>com.smartisanos.desktop</item>
         <item>com.android.settings</item>
         <item>com.android.desktop.systemui</item>
+        <item>com.android.systemui</item>
         <item>id.tntwindow.editor</item>
+        <item>com.android.packageinstaller</item>
+        <item>com.google.android.packageinstaller</item>
+        <item>com.android.permissioncontroller</item>
+        <item>com.samsung.android.packageinstaller</item>
+        <item>com.miui.packageinstaller</item>
+        <item>com.smartisanos.packageinstaller</item>
     </string-array>
 </resources>

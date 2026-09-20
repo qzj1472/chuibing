@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,10 +38,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.delay
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,12 +56,16 @@ import id.tntwindow.editor.TntViewModel
 import id.tntwindow.editor.domain.InstalledApp
 import id.tntwindow.editor.domain.VoiceAlias
 import id.tntwindow.editor.domain.VoiceCommand
+import id.tntwindow.editor.domain.VoiceEngineInfo
 import id.tntwindow.editor.ui.components.AppIcon
 import id.tntwindow.editor.ui.components.Panel
 import id.tntwindow.editor.ui.components.PrimaryButton
 import id.tntwindow.editor.ui.components.RowSwitch
 import id.tntwindow.editor.ui.theme.Mono
+import id.tntwindow.editor.voice.VoiceAsrPacks
 import id.tntwindow.editor.voice.VoiceListen
+import id.tntwindow.editor.voice.VoiceModelDownload
+import id.tntwindow.editor.xposed.VoiceSpeak
 import androidx.core.content.ContextCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,10 +87,19 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
     var pendingAlias by remember { mutableStateOf<VoiceAlias?>(null) }
     var listening by remember { mutableStateOf(false) }
     var heard by remember { mutableStateOf("") }
+    var pickRec by remember { mutableStateOf(false) }
+    var pickTts by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val listener = remember { VoiceListen(context) }
     DisposableEffect(Unit) {
         onDispose { listener.stop() }
+    }
+    val asrTick by VoiceModelDownload.tick.collectAsState()
+    LaunchedEffect(Unit) {
+        VoiceModelDownload.sync(context)
+    }
+    LaunchedEffect(asrTick) {
+        vm.refreshVoiceEngines()
     }
     val startListen: () -> Unit = {
         listening = true
@@ -132,9 +150,45 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
                 }
             }
             Panel {
-                Text("语音反馈", style = MaterialTheme.typography.titleMedium)
+                Text("语音引擎", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable { pickRec = true }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("听写引擎")
+                        Text(
+                            engineLabel(state.voiceRecognizer, state.voiceRecognizers),
+                            color = scheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Text("›", color = scheme.onSurfaceVariant)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable { pickTts = true }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("播报引擎")
+                        Text(
+                            engineLabel(state.voiceTts, state.voiceTtsEngines),
+                            color = scheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Text("›", color = scheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(4.dp))
                 RowSwitch("语音播报", state.voiceSpeak) { vm.setVoiceSpeak(it) }
+                Spacer(Modifier.height(8.dp))
+                PrimaryButton(
+                    "试听播报",
+                    onClick = { VoiceSpeak.say(context, "这是当前播报引擎") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = state.voiceSpeak,
+                )
             }
             Panel {
                 Text("自定义指令", style = MaterialTheme.typography.titleMedium)
@@ -149,11 +203,15 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = action == "launch", onClick = { action = "launch" }, label = { Text("打开应用") })
+                    FilterChip(selected = action == "freeform", onClick = { action = "freeform" }, label = { Text("小窗打开") })
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = action == "search", onClick = { action = "search" }, label = { Text("搜索词条") })
                     FilterChip(selected = action == "shell", onClick = { action = "shell" }, label = { Text("运行命令") })
                 }
                 Spacer(Modifier.height(8.dp))
-                if (action == "launch") {
+                if (action == "launch" || action == "freeform") {
                     Text(if (target.isBlank()) "还没选应用" else targetLabel + "\n" + target, style = if (target.isBlank()) MaterialTheme.typography.bodyMedium else Mono)
                     Spacer(Modifier.height(8.dp))
                     PrimaryButton("选择应用", onClick = { pickApp = true }, modifier = Modifier.fillMaxWidth())
@@ -180,7 +238,7 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
                     onClick = {
                         vm.addVoiceCommand(phrase, action, target)
                         phrase = ""
-                        if (action == "launch") {
+                        if (action == "launch" || action == "freeform") {
                             target = ""
                             targetLabel = ""
                         }
@@ -233,6 +291,7 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
                                 when (cmd.action) {
                                     "shell" -> "命令 "
                                     "search" -> "搜索 "
+                                    "freeform" -> "小窗打开 "
                                     else -> "打开 "
                                 } + cmd.target,
                                 style = Mono,
@@ -262,9 +321,7 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
                     if (listening) "正在听，点一下停止" else "对着麦克风说",
                     onClick = {
                         if (listening) {
-                            listener.stop()
-                            listening = false
-                            if (heard == "正在听…") heard = "已停止"
+                            listener.finish()
                         } else {
                             val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                             if (granted) startListen() else askMic.launch(Manifest.permission.RECORD_AUDIO)
@@ -294,7 +351,29 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
             }
         }
     }
-        if (pickApp) {
+        if (pickRec) {
+        RecEngineDialog(
+            engines = state.voiceRecognizers,
+            onDismiss = { pickRec = false },
+            onPick = { id ->
+                vm.setVoiceRecognizer(id)
+                pickRec = false
+            },
+            onDownload = { id -> vm.startSherpaDownload(id) },
+        )
+    }
+    if (pickTts) {
+        EnginePickDialog(
+            title = "播报引擎",
+            engines = state.voiceTtsEngines,
+            onDismiss = { pickTts = false },
+            onPick = { id ->
+                vm.setVoiceTts(id)
+                pickTts = false
+            },
+        )
+    }
+    if (pickApp) {
         AppPickDialog(
             installed = state.installed,
             onDismiss = { pickApp = false },
@@ -352,6 +431,100 @@ fun VoiceLaunchScreen(vm: TntViewModel, onBack: () -> Unit) {
     }
 }
 
+private fun engineLabel(id: String, list: List<VoiceEngineInfo>): String {
+    if (id.isBlank()) return "系统默认"
+    if (id == VoiceAsrPacks.ZIPFORMER) return "Zipformer 快档"
+    if (id == VoiceAsrPacks.SENSEVOICE) return "SenseVoice 口音档"
+    return list.firstOrNull { it.id == id }?.label ?: id
+}
+
+
+@Composable
+private fun RecEngineDialog(
+    engines: List<VoiceEngineInfo>,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+    onDownload: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val tick by VoiceModelDownload.tick.collectAsState()
+    val refresh = tick
+    LaunchedEffect(Unit) {
+        while (true) {
+            VoiceModelDownload.sync(context)
+            delay(1000)
+        }
+    }
+    val packs = VoiceAsrPacks.all
+    val items = listOf(VoiceEngineInfo("", "系统默认")) + engines.filter { !it.id.startsWith("sherpa:") }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.72f)) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("听写引擎", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("关闭") }
+                }
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(packs, key = { it.id }) { pack ->
+                        val st = VoiceModelDownload.stateText(context, pack)
+                        Column(
+                            Modifier.fillMaxWidth().clickable {
+                                if (VoiceModelDownload.isReady(context, pack)) onPick(pack.id) else onDownload(pack.id)
+                            }.padding(vertical = 10.dp),
+                        ) {
+                            Text(pack.title)
+                            Text(st, style = Mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    items(items, key = { it.id.ifBlank { "_" } }) { eng ->
+                        Column(
+                            Modifier.fillMaxWidth().clickable { onPick(eng.id) }.padding(vertical = 10.dp),
+                        ) {
+                            Text(eng.label)
+                            if (eng.id.isNotBlank()) {
+                                Text(eng.id, style = Mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+@Composable
+private fun EnginePickDialog(
+    title: String,
+    engines: List<VoiceEngineInfo>,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val items = listOf(VoiceEngineInfo("", "系统默认")) + engines
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.72f)) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("关闭") }
+                }
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(items, key = { it.id.ifBlank { "_" } }) { eng ->
+                        Column(
+                            Modifier.fillMaxWidth().clickable { onPick(eng.id) }.padding(vertical = 10.dp),
+                        ) {
+                            Text(eng.label)
+                            if (eng.id.isNotBlank()) {
+                                Text(eng.id, style = Mono, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppPickDialog(installed: List<InstalledApp>, onDismiss: () -> Unit, onPick: (InstalledApp) -> Unit) {
@@ -367,7 +540,7 @@ private fun AppPickDialog(installed: List<InstalledApp>, onDismiss: () -> Unit, 
             .sortedBy { it.label }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+        Surface(color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.92f)) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("选择应用", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -404,4 +577,5 @@ private fun AppPickDialog(installed: List<InstalledApp>, onDismiss: () -> Unit, 
         }
     }
 }
+
 

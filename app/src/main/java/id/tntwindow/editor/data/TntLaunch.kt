@@ -18,6 +18,7 @@ object TntLaunch {
     const val APP_PKG = "id.tntwindow.editor"
     const val APP_ACTIVITY = "id.tntwindow.editor.MainActivity"
     const val REMOTER_PKG = "com.smartisanos.virtualremoter"
+    const val EXTRA_VOICE = "id.tntwindow.editor.voice_launch"
 
     fun desktopComponent(): ComponentName = ComponentName(DESKTOP_PKG, DESKTOP_CLS)
 
@@ -53,6 +54,33 @@ object TntLaunch {
         }
     }
 
+    fun startPhone(context: Context, intent: Intent): Boolean {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        intent.putExtra(EXTRA_DISPLAY, false)
+        intent.putExtra(EXTRA_VOICE, true)
+        val opts = ActivityOptions.makeBasic()
+        try {
+            opts.launchDisplayId = Display.DEFAULT_DISPLAY
+        } catch (_: Throwable) {
+        }
+        applyDisplayOptions(opts, Display.DEFAULT_DISPLAY)
+        val bundle = opts.toBundle() ?: android.os.Bundle()
+        bundle.putInt("android.activity.launchDisplayId", Display.DEFAULT_DISPLAY)
+        val ctx = phoneContext(context)
+        try {
+            ctx.startActivity(intent, bundle)
+            return true
+        } catch (_: Throwable) {
+        }
+        if (startWithAm(intent, Display.DEFAULT_DISPLAY)) return true
+        return try {
+            ctx.startActivity(intent)
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun startDesktop(context: Context? = null): Boolean {
         val intent = Intent(Intent.ACTION_MAIN)
         intent.addCategory(Intent.CATEGORY_HOME)
@@ -64,7 +92,7 @@ object TntLaunch {
     }
 
     fun applyDisplayOptions(options: Any?, id: Int): Boolean {
-        if (options == null || id <= 0) return false
+        if (options == null || id < 0) return false
         return try {
             val m = options.javaClass.methods.firstOrNull {
                 it.name == "setLaunchDisplayId" && it.parameterTypes.size == 1
@@ -153,7 +181,7 @@ object TntLaunch {
     fun amCommand(intent: Intent, id: Int): String? {
         val parts = ArrayList<String>()
         parts.add("am start")
-        if (id > 0) {
+        if (id >= 0) {
             parts.add("--display")
             parts.add(id.toString())
         }
@@ -187,6 +215,16 @@ object TntLaunch {
             }
         }
         return parts.joinToString(" ")
+    }
+
+    private fun phoneContext(context: Context): Context {
+        return try {
+            val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return context
+            val d0 = dm.getDisplay(Display.DEFAULT_DISPLAY) ?: return context
+            context.createDisplayContext(d0)
+        } catch (_: Throwable) {
+            context
+        }
     }
 
     private fun fieldDisplayId(): Int {

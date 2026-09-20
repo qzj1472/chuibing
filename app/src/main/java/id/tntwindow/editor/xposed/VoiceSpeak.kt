@@ -14,7 +14,6 @@ object VoiceSpeak {
     private val main = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var ready = false
-    private var warmed = false
     private var pending: String? = null
     private var engine = ""
 
@@ -58,7 +57,6 @@ object VoiceSpeak {
                 try { tts?.shutdown() } catch (_: Throwable) {}
                 tts = null
                 ready = false
-                warmed = false
             }
             engine = want
             if (tts != null) return
@@ -68,10 +66,7 @@ object VoiceSpeak {
                     val engineTts = tts
                     if (ready && engineTts != null) {
                         try { engineTts.language = Locale.CHINA } catch (_: Throwable) {}
-                        main.postDelayed({
-                            warmed = true
-                            flushPending(engineTts)
-                        }, 450)
+                        main.post { flushPending(engineTts) }
                     } else {
                         tone()
                     }
@@ -103,17 +98,14 @@ object VoiceSpeak {
     private fun speakNow(engineTts: TextToSpeech, text: String): Boolean {
         return try {
             engineTts.setSpeechRate(0.96f)
-            val silent = try {
-                engineTts.playSilentUtterance(if (warmed) 280 else 700, TextToSpeech.QUEUE_FLUSH, "tnt-silence")
-                TextToSpeech.SUCCESS
-            } catch (_: Throwable) {
-                TextToSpeech.ERROR
-            }
-            val r = engineTts.speak(text, if (silent == TextToSpeech.SUCCESS) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH, null, "tnt-voice")
-            r == TextToSpeech.SUCCESS
+            engineTts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tnt-voice") == TextToSpeech.SUCCESS
         } catch (_: Throwable) {
             false
         }
+    }
+
+    fun cue() {
+        tone()
     }
 
     private fun tone() {
